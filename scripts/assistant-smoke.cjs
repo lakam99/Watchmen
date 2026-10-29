@@ -49,7 +49,10 @@ const { _electron: electron } = require("playwright"),
       .getByRole("button", { name: "Settings & privacy", exact: true })
       .click();
     await page
-      .getByRole("textbox", { name: "AI model", exact: true })
+      .getByRole("combobox", { name: "AI model", exact: true })
+      .selectOption("__custom");
+    await page
+      .getByRole("textbox", { name: "Custom AI model ID", exact: true })
       .fill("fixture/tool-capable-model");
     await page.getByLabel("AI API token", { exact: true }).fill(token);
     await page

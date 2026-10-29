@@ -1,6 +1,13 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.1/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.2/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.2 validation
+
+- AI Settings now uses a model dropdown with curated OpenAI presets and provider-specific IDs for OpenAI and OpenRouter. Custom IDs, including previously saved values and compatible endpoints, remain editable. Choosing a model makes no network request. Preset IDs were checked against official provider catalogs; account availability is not guaranteed.
+- All 79 unit tests and the frontend/native builds pass. The packaged feature check verifies both provider selectors, custom input, a preset saved to SQLite and restored after restart, token reuse without re-entry, Windows encryption, and the existing mocked insight request. The packaged assistant workflow also passes. No paid inference or real firewall operation was used. The dark settings screenshot was visually checked.
+
+Evidence: `test-results/features-smoke-packaged.json`, `assistant-smoke-packaged.json`, and `secure-ai-settings-dark.png`.
 
 ## Version 0.10.1 validation
 

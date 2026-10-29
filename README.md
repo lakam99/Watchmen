@@ -4,7 +4,7 @@ A local-first Windows desktop network monitor with a spaceship terminal interfac
 
 ## Run the desktop app
 
-Open `release/0.10.1/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
+Open `release/0.10.2/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
 
 The standard mode reads live TCP connections, UDP listening sockets, process ownership, and incoming/outgoing network-interface rates. Use **Enable detailed capture** to relaunch with Windows administrator approval and enable per-process TCP/UDP byte counts. Canceling UAC leaves standard monitoring available.
 
@@ -110,7 +110,7 @@ No shell commands, arbitrary URL fetches, file/packet reads, SQL, custom tool in
 
 ## AI insights and token storage
 
-In **Settings & privacy → AI insights**, choose OpenRouter (the default), OpenAI, or an OpenAI-compatible HTTPS service. Enter the provider's API token and model ID, then select **Save AI settings**. Nonsecret settings are stored in the local traffic SQLite database. A saved token is never returned to the renderer; the password field clears after saving. Changing providers or endpoints requires a new token. **Remove token** deletes the saved encrypted credential.
+In **Settings & privacy → AI insights**, choose OpenRouter (the default), OpenAI, or an OpenAI-compatible HTTPS service. Choose an OpenAI model from the **Model** dropdown, or select **Custom model ID…** for other models and compatible services. The curated presets use provider-specific IDs from the [OpenAI model catalog](https://developers.openai.com/api/docs/models) and [OpenRouter catalog](https://openrouter.ai/api/v1/models); account access and pricing vary. Saved custom IDs are preserved, and selecting a model makes no network request. Enter the provider's API token, then select **Save AI settings**. Nonsecret settings are stored in the local traffic SQLite database. A saved token is never returned to the renderer; the password field clears after saving. Changing providers or endpoints requires a new token. **Remove token** deletes the saved encrypted credential.
 
 The token is encrypted using Electron's asynchronous `safeStorage` API backed by Windows DPAPI and stored at **`.watchmen/ai-token.bin` in this working directory**. Nonsecret appearance/provider preferences, update preferences, monitor grouping/filter/search/adapter/chart choices, window size, and the IP lookup choice are stored in the `app_settings` table of `.watchmen/traffic.sqlite`. Existing `settings.json` and `update-settings.json` files are imported once and preserved as legacy backups; subsequent saves use SQLite. The directory is ignored by Git and excluded from packaged builds. The settings screen displays the exact credential path. If Windows encryption is unavailable, token saving fails without writing a plaintext fallback. DPAPI protects stored data from other Windows users; software running as your own Windows account is inside the same trust boundary. See [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
 

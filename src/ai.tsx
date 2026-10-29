@@ -14,6 +14,25 @@ export type AIConfig = {
   baseUrl: string;
   model: string;
 };
+// Curated text/tool models; IDs verified against the official catalogs.
+// https://developers.openai.com/api/docs/models
+// https://openrouter.ai/api/v1/models
+const openAIModels = [
+  ["gpt-6.1-sol", "GPT-6.1 Sol"],
+  ["gpt-6.1-terra", "GPT-6.1 Terra"],
+  ["gpt-6-astra", "GPT-6 Astra"],
+  ["gpt-6-luna", "GPT-6 Luna"],
+  ["gpt-4.1", "GPT-4.1"],
+  ["gpt-4.1-mini", "GPT-4.1 mini"],
+  ["gpt-4.1-nano", "GPT-4.1 nano"],
+];
+const modelChoices = (provider: AIConfig["provider"]) =>
+  provider === "compatible"
+    ? []
+    : openAIModels.map(([id, name]) => ({
+        id: provider === "openrouter" ? `openai/${id}` : id,
+        name,
+      }));
 export type PreferencesStatus = {
   theme: "system" | "light" | "dark";
   ai: AIConfig;
@@ -53,6 +72,10 @@ export function AISettings({
     [token, setToken] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [customModel, setCustomModel] = useState(
+    () => !modelChoices(config.provider).some((m) => m.id === config.model),
+  );
+  const choices = modelChoices(config.provider);
   const save = async () => {
     if (!window.watchmen) return;
     setBusy(true);
@@ -120,6 +143,7 @@ export function AISettings({
                       ? "openai/gpt-4.1-mini"
                       : config.model,
               });
+              setCustomModel(provider === "compatible");
               setToken("");
             }}
           >
@@ -129,15 +153,47 @@ export function AISettings({
           </select>
         </label>
         <label>
-          Model ID
-          <input
+          Model
+          <select
             aria-label="AI model"
+            value={customModel ? "__custom" : config.model}
+            onChange={(e) => {
+              const custom = e.target.value === "__custom";
+              setCustomModel(custom);
+              if (!custom) setConfig({ ...config, model: e.target.value });
+            }}
+          >
+            {choices.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+            <option value="__custom">Custom model ID…</option>
+          </select>
+        </label>
+      </div>
+      {customModel && (
+        <label className="field-label">
+          Custom model ID
+          <input
+            aria-label="Custom AI model ID"
             value={config.model}
             onChange={(e) => setConfig({ ...config, model: e.target.value })}
             spellCheck={false}
+            maxLength={160}
+            placeholder={
+              config.provider === "openrouter"
+                ? "provider/model-id"
+                : "model-id"
+            }
           />
         </label>
-      </div>
+      )}
+      <p>
+        Choose an OpenAI preset or enter a custom model ID. Availability and
+        pricing depend on your provider and account. The AI console requires
+        OpenRouter and a model with tool support.
+      </p>
       {config.provider === "compatible" && (
         <label className="field-label">
           API base URL

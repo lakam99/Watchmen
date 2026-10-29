@@ -66,8 +66,28 @@ const { randomUUID } = require("node:crypto");
     await page.waitForFunction(
       () => document.documentElement.dataset.theme === "dark",
     );
+    const modelPicker = page.getByRole("combobox", {
+      name: "AI model",
+      exact: true,
+    });
     await page
-      .getByRole("textbox", { name: "AI model", exact: true })
+      .getByRole("combobox", { name: "AI provider" })
+      .selectOption("openai");
+    await modelPicker.selectOption("gpt-6.1-sol");
+    assert.equal(await modelPicker.inputValue(), "gpt-6.1-sol");
+    assert.equal(
+      await page.getByLabel("Custom AI model ID", { exact: true }).count(),
+      0,
+    );
+    await page
+      .getByRole("combobox", { name: "AI provider" })
+      .selectOption("openrouter");
+    assert.equal(await modelPicker.inputValue(), "openai/gpt-4.1-mini");
+    await page
+      .getByRole("combobox", { name: "AI model", exact: true })
+      .selectOption("__custom");
+    await page
+      .getByRole("textbox", { name: "Custom AI model ID", exact: true })
       .fill("openai/test-model");
     await page.getByLabel("AI API token", { exact: true }).fill(token);
     await page
@@ -106,6 +126,14 @@ const { randomUUID } = require("node:crypto");
     }, workingDir);
     assert.ok(!settingsJSON.includes(token));
     assert.equal(JSON.parse(settingsJSON).ai.model, "openai/test-model");
+    await modelPicker.selectOption("openai/gpt-6.1-terra");
+    await page
+      .getByRole("button", { name: "Save AI settings", exact: true })
+      .click();
+    await page.waitForFunction(async () => {
+      const status = await window.watchmen.preferences();
+      return status.ok && status.value.ai.model === "openai/gpt-6.1-terra";
+    });
     await page.screenshot({ path: "test-results/secure-ai-settings-dark.png" });
     await page.getByRole("button", { name: "Back to my network" }).click();
     await app.close();
@@ -118,6 +146,28 @@ const { randomUUID } = require("node:crypto");
     );
     status = await page.evaluate(() => window.watchmen.preferences());
     assert.equal(status.value.hasToken, true);
+    await page.getByRole("button", { name: "Settings & privacy" }).click();
+    const restoredPicker = page.getByRole("combobox", {
+      name: "AI model",
+      exact: true,
+    });
+    assert.equal(await restoredPicker.inputValue(), "openai/gpt-6.1-terra");
+    assert.equal(
+      await page.getByLabel("Custom AI model ID", { exact: true }).count(),
+      0,
+    );
+    await restoredPicker.selectOption("__custom");
+    await page
+      .getByLabel("Custom AI model ID", { exact: true })
+      .fill("openai/test-model");
+    await page
+      .getByRole("button", { name: "Save AI settings", exact: true })
+      .click();
+    await page.waitForFunction(async () => {
+      const status = await window.watchmen.preferences();
+      return status.ok && status.value.ai.model === "openai/test-model";
+    });
+    await page.getByRole("button", { name: "Back to my network" }).click();
     await app.evaluate(({ net }) => {
       global.__aiRequest = null;
       net.fetch = async (url, options) => {
@@ -205,6 +255,9 @@ const { randomUUID } = require("node:crypto");
       packaged,
       realWindowsEncryption: true,
       checks: [
+        "OpenAI and OpenRouter model dropdowns use provider-specific IDs",
+        "preset selection persisted across restart without re-entering token",
+        "custom model ID remains editable and saves correctly",
         "inline connection table and filter",
         "specific connection inspector without dropdown",
         "dark and light themes",

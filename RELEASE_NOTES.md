@@ -1,5 +1,6 @@
 ## Changes
 
+- Replace the AI model text field with a dropdown of OpenAI models for both OpenAI and OpenRouter. Preserve the saved selection and provide a custom model ID option for other models and compatible endpoints. No catalog request or token sharing is needed to choose a model.
 - Add an OpenRouter chatbot in a starship command panel with live tool activity, background responses, cancellation, and session reset.
 - Let the assistant inspect current applications/connections, saved traffic profiles, grouped changes, and Watchmen rules through bounded local tools.
 - Add opt-in public-IP lookups and cited web research. The app uses fixed HTTPS endpoints, disables the default web plugin, and keeps public-IP sharing off by default. Lookup preferences persist locally; chat and tool results remain in memory.
