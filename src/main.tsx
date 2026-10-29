@@ -93,7 +93,7 @@ declare global {
       assistantCancel: () => Promise<Result<AssistantState>>;
       assistantReset: () => Promise<Result<AssistantState>>;
       assistantConfigure: (
-        options: AssistantOptions,
+        options: Partial<AssistantOptions>,
       ) => Promise<Result<AssistantState>>;
       assistantApprove: (
         id: string,

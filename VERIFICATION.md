@@ -1,6 +1,10 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.0/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.1/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.1 validation
+
+- Permission switches now patch only their selected field. A reproduced packaged-UI regression confirms a stale window cannot re-enable public-IP sharing revoked through the shared settings store by another instance. All 79 unit tests and the packaged assistant workflow pass. Version 0.10.0 was marked prerelease and removed from the stable feed while this correction was prepared.
 
 ## Version 0.10 validation
 

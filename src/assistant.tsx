@@ -166,7 +166,9 @@ export function AIConsole({
     setState({ ...state, options: next });
     await run(async () => {
       try {
-        const result = await window.watchmen!.assistantConfigure(next);
+        const result = await window.watchmen!.assistantConfigure({
+          [key]: value,
+        });
         if (!result.ok) setState(before);
         return result;
       } catch (error) {

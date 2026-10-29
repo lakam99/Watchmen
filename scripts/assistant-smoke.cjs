@@ -360,8 +360,27 @@ const { _electron: electron } = require("playwright"),
       1,
     );
     await page
+      .getByRole("checkbox", {
+        name: "Share public destination IPs",
+        exact: true,
+      })
+      .check();
+    await app.evaluate(async () => {
+      await global.__assistantFixture.settings.patch("assistant", {
+        shareIPs: false,
+      });
+    });
+    await page
       .getByRole("checkbox", { name: "Allow public IP lookups", exact: true })
       .check();
+    const afterExternalRevocation = await page.evaluate(() =>
+      window.watchmen.assistantStatus(),
+    );
+    assert.equal(
+      afterExternalRevocation.value.options.shareIPs,
+      false,
+      "A stale checkbox must not re-enable sharing revoked by another window.",
+    );
     await page
       .getByRole("checkbox", { name: "Allow web research", exact: true })
       .check();
