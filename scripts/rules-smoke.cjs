@@ -21,16 +21,22 @@ const assert = require("node:assert/strict");
               "Watchmen-win32-x64",
               "Watchmen.exe",
             ),
-            args: [],
+            args: ["--user-data-dir=" + path.join(workspace, "chromium")],
           }
-        : { args: [process.cwd()] }),
+        : {
+            args: [
+              process.cwd(),
+              "--user-data-dir=" + path.join(workspace, "chromium"),
+            ],
+          }),
       env,
+      timeout: 60000,
     });
   let application = await launch();
   const errors = [];
   let page;
   async function installMock(admin = false) {
-    page = await application.firstWindow();
+    page = await application.firstWindow({ timeout: 60000 });
     page.on("pageerror", (error) => errors.push(error.message));
     await page.waitForFunction(() => window.watchmen);
     const snapshot = await page.evaluate(() => window.watchmen.getStatus());
@@ -109,7 +115,37 @@ const assert = require("node:assert/strict");
         global.__nativeActions = [];
         const manager = new Firewall(path.join(workspace, ".watchmen"), {
           snapshot: () => global.__ruleSnapshot,
-          transport: async (request) => {
+          transport: async (request, options) => {
+            if (request.action !== "list" && global.__holdRuleTask) {
+              options.onProgress({
+                type: "progress",
+                stage: "staging",
+                message: "Staging persistent Windows filters...",
+                completed: 500,
+                total: 2000,
+                canCancel: true,
+                lastAdvancedAt: new Date().toISOString(),
+              });
+              await new Promise((resolve, reject) => {
+                global.__finishRuleTask = resolve;
+                options.signal.addEventListener("abort", () => {
+                  const error = new Error(
+                    "Rule change cancelled. The uncommitted transaction was rolled back.",
+                  );
+                  error.cancelled = true;
+                  reject(error);
+                });
+              });
+              options.onProgress({
+                type: "progress",
+                stage: "committing",
+                message: "Committing Windows rules...",
+                completed: 0,
+                total: 0,
+                canCancel: false,
+                lastAdvancedAt: new Date().toISOString(),
+              });
+            }
             if (request.action !== "list") {
               global.__nativeActions.push(request.action);
               await new Promise((resolve) => setTimeout(resolve, 80));
@@ -140,12 +176,11 @@ const assert = require("node:assert/strict");
                   createdAt: new Date().toISOString(),
                   enabled: true,
                   partial: false,
-                  nativeRuleCount:
-                    input.kind === "region"
-                      ? request.ranges.length * 2
-                      : ["app", "onlyApp"].includes(input.kind)
-                        ? 4
-                        : 2,
+                  nativeRuleCount: ["region", "onlyRegion"].includes(input.kind)
+                    ? request.ranges.length * 2
+                    : ["app", "onlyApp"].includes(input.kind)
+                      ? 4
+                      : 2,
                   sourceMonth: input.sourceMonth || "",
                   rangeCount: request.ranges.length,
                 });
@@ -179,6 +214,7 @@ const assert = require("node:assert/strict");
           "firewall-toggle": (id, enabled) => manager.toggle(id, enabled),
           "firewall-forget": (id) => manager.forget(id),
           "firewall-unblock-all": () => manager.unblockAll(),
+          "firewall-cancel": () => manager.cancel(),
           "firewall-pick-app": (only) =>
             manager.prepareExecutable(flow.processPath, flow.app, only),
         };
@@ -407,6 +443,95 @@ const assert = require("node:assert/strict");
       path: "test-results/network-rules-dark.png",
       fullPage: true,
     });
+    // Exercise a long-running task through production IPC without touching real Windows policy.
+    await page
+      .getByRole("button", { name: "Allow Canada + US only", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Review country-only mode", exact: true })
+      .click();
+    const countryOnly = page.getByRole("dialog", {
+      name: "Allow only selected countries / regions",
+      exact: true,
+    });
+    await countryOnly.waitFor();
+    assert.ok((await countryOnly.innerText()).includes("United States"));
+    assert.ok(
+      (await countryOnly.innerText()).toLowerCase().includes("unknown public locations"),
+    );
+    assert.equal(
+      await countryOnly
+        .getByRole("button", { name: "Enable country-only mode", exact: true })
+        .isEnabled(),
+      false,
+    );
+    await countryOnly.getByRole("checkbox").check();
+    await application.evaluate(() => {
+      global.__holdRuleTask = true;
+    });
+    await countryOnly
+      .getByRole("button", { name: "Enable country-only mode", exact: true })
+      .click();
+    await countryOnly.getByRole("progressbar").waitFor();
+    await countryOnly
+      .getByRole("button", { name: "Minimize task", exact: true })
+      .click();
+    await countryOnly.waitFor({ state: "hidden" });
+    const task = page.getByRole("complementary", {
+      name: "Network rule task",
+      exact: true,
+    });
+    await task.waitFor();
+    assert.equal(
+      await task.getByRole("progressbar").getAttribute("value"),
+      "500",
+    );
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "Applications", exact: true })
+      .click();
+    await page
+      .getByRole("row", {
+        name: "Connections for Watchmen Rule Test",
+        exact: true,
+      })
+      .waitFor();
+    await page.screenshot({ path: "test-results/background-rule-task.png" });
+    await task.getByRole("button", { name: "Show task", exact: true }).click();
+    await countryOnly.waitFor();
+    await countryOnly
+      .getByRole("button", { name: "Minimize task", exact: true })
+      .click();
+    await task
+      .getByRole("button", { name: "Cancel task", exact: true })
+      .click();
+    await page.waitForFunction(async () => {
+      const r = await window.watchmen.firewallStatus();
+      return r.ok && !r.value.busy && r.value.job?.status === "cancelled";
+    });
+    await task.getByRole("button", { name: "Show task", exact: true }).click();
+    await application.evaluate(() => {
+      global.__holdRuleTask = true;
+    });
+    await countryOnly
+      .getByRole("button", { name: "Enable country-only mode", exact: true })
+      .click();
+    await countryOnly.getByRole("progressbar").waitFor();
+    await countryOnly
+      .getByRole("button", { name: "Minimize task", exact: true })
+      .click();
+    await application.evaluate(() => {
+      global.__holdRuleTask = false;
+      global.__finishRuleTask();
+    });
+    await page
+      .getByRole("button", { name: "Turn off country-only mode", exact: true })
+      .waitFor();
+    await page.screenshot({ path: "test-results/country-only-active.png" });
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "Network rules", exact: true })
+      .click();
     await page.setViewportSize({ width: 1000, height: 760 });
     assert.equal(
       await page.evaluate(
@@ -434,6 +559,11 @@ const assert = require("node:assert/strict");
     assert.equal(
       restored.value.rules.find((r) => r.kind === "app").enabled,
       false,
+    );
+    assert.ok(
+      (
+        await page.evaluate(() => window.watchmen.firewallStatus())
+      ).value.rules.some((r) => r.kind === "onlyRegion" && r.enabled),
     );
     await page
       .getByRole("button", { name: "Unblock all Watchmen rules", exact: true })
@@ -464,6 +594,8 @@ const assert = require("node:assert/strict");
         "saved rules restored after restart",
         "unblock all",
         "minimum window width",
+        "country-only Canada and US review, acknowledgement and persistence",
+        "real progress display with minimize, navigation, restore and cancellation",
         "no renderer errors",
       ],
     };

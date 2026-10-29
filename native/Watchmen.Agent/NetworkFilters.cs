@@ -21,7 +21,8 @@ sealed class NetworkFilters : IDisposable
     public NetworkFilters(bool testScope = false)
     {
         this.testScope = testScope;
-        Check(FwpmEngineOpen0(null, 10, IntPtr.Zero, IntPtr.Zero, out engine));
+        var session = new Session { transactionWait = 15000 };
+        Check(FwpmEngineOpen0(null, 10, IntPtr.Zero, ref session, out engine));
     }
     static void Check(uint code) { if (code != 0) throw new InvalidOperationException($"Windows filtering failed (0x{code:X8})."); }
     public void Dispose() { FwpmEngineClose0(engine); }
@@ -42,7 +43,7 @@ sealed class NetworkFilters : IDisposable
         return (active > 0, !persistent || found != active || found > 0 && found != indices.Length);
     }
     static bool Version4(string range) => IPAddress.Parse(range.Split('-', '/')[0]).AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
-    public void ApplyRule(Firewall.Rule rule, string[] ranges, bool enabled, int testPort = 0)
+    public void ApplyRule(Firewall.Rule rule, string[] ranges, bool enabled, int testPort = 0, bool fresh = false)
     {
         IntPtr application = IntPtr.Zero, conditions = IntPtr.Zero, address = IntPtr.Zero, metadata = IntPtr.Zero;
         var allocations = new List<IntPtr>();
@@ -64,10 +65,14 @@ sealed class NetworkFilters : IDisposable
         }
         try
         {
+            PolicyOperation.Check();
+            PolicyOperation.Report("waiting-windows",0,0,"Waiting for Windows filtering engine…");
             Check(FwpmTransactionBegin0(engine, 0)); transaction = true;
             int count = rule.NativeRuleCount;
-            for (int index = 0; index < count; index++)
+            for (int index = 0; !fresh && index < count; index++)
             {
+                PolicyOperation.Check();
+                PolicyOperation.Report("removing",index,count,"Removing previous filters…");
                 var key = RuleKey(rule.Id, index); uint result = FwpmFilterGetByKey0(engine, ref key, out var prior);
                 if (result == 0) { try { var filter = Marshal.PtrToStructure<Filter>(prior); if (filter.subLayerKey != SubLayerKey) throw new InvalidOperationException("A network rule key belongs to another policy."); } finally { FwpmFreeMemory0(ref prior); } Check(FwpmFilterDeleteByKey0(engine, ref key)); } else if (result != 0x80320003) Check(result);
             }
@@ -78,12 +83,14 @@ sealed class NetworkFilters : IDisposable
                 if (rule.Kind is "app" or "connection" or "onlyApp") Check(FwpmGetAppIdFromFileName0(rule.AppPath, out application));
                 int size = Marshal.SizeOf<Condition>(); conditions = Marshal.AllocHGlobal(size * 6);
                 byte[] data = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rule, Firewall.Json)); metadata = Marshal.AllocHGlobal(data.Length); Marshal.Copy(data, 0, metadata, data.Length);
-                var targets = rule.Kind == "region" ? ranges : rule.Kind is "destination" or "connection" ? [rule.Address] : new[] { "" }; int sequence = 0;
+                var targets = rule.Kind is "region" or "onlyRegion" ? ranges : rule.Kind is "destination" or "connection" ? [rule.Address] : new[] { "" }; int sequence = 0;
                 foreach (string target in targets)
                 {
                     var layerIndices = target.Length == 0 ? new[] { 0, 1, 2, 3 } : Version4(target) ? new[] { 0, 2 } : new[] { 1, 3 };
                     foreach (int layer in layerIndices)
                     {
+                        PolicyOperation.Check();
+                        PolicyOperation.Report("staging",sequence,count,"Staging persistent Windows filters…");
                         int number = 0;
                         void Add(Condition condition) { Marshal.StructureToPtr(condition, conditions + number * size, false); number++; }
                         if (application != IntPtr.Zero) Add(new Condition { key = AppId, match = rule.Kind == "onlyApp" ? 10u : 0u, value = new Value { type = 12, pointer = application } });
@@ -106,11 +113,13 @@ sealed class NetworkFilters : IDisposable
                 }
                 if (sequence != count) throw new InvalidOperationException("The rule filter count does not match its scope.");
             }
+            PolicyOperation.Check();
+            PolicyOperation.Report("committing",0,0,"Windows is committing the rules. Monitoring remains available.",false);
             Check(FwpmTransactionCommit0(engine)); transaction = false;
         }
         finally
         {
-            if (transaction) FwpmTransactionAbort0(engine);
+            if (transaction) { PolicyOperation.Report("rolling-back",0,0,"Rolling back uncommitted changes…",false); FwpmTransactionAbort0(engine); }
             if (application != IntPtr.Zero) FwpmFreeMemory0(ref application);
             if (conditions != IntPtr.Zero) Marshal.FreeHGlobal(conditions);
             if (address != IntPtr.Zero) Marshal.FreeHGlobal(address);
@@ -122,9 +131,9 @@ sealed class NetworkFilters : IDisposable
     {
         Check(FwpmFilterCreateEnumHandle0(engine, IntPtr.Zero, out var enumeration));
         var ids = new List<ulong>();
-        try { while (true) { Check(FwpmFilterEnum0(engine, enumeration, 1024, out var entries, out uint count)); try { if (count == 0) break; for (int i = 0; i < count; i++) { var filter = Marshal.PtrToStructure<Filter>(Marshal.ReadIntPtr(entries, i * IntPtr.Size)); if (filter.subLayerKey == SubLayerKey) ids.Add(filter.id); } } finally { if (entries != IntPtr.Zero) FwpmFreeMemory0(ref entries); } } } finally { FwpmFilterDestroyEnumHandle0(engine, enumeration); }
+        try { while (true) { PolicyOperation.Check(); PolicyOperation.Report("finding",ids.Count,0,"Finding Watchmen filters…"); Check(FwpmFilterEnum0(engine, enumeration, 1024, out var entries, out uint count)); try { if (count == 0) break; for (int i = 0; i < count; i++) { var filter = Marshal.PtrToStructure<Filter>(Marshal.ReadIntPtr(entries, i * IntPtr.Size)); if (filter.subLayerKey == SubLayerKey) ids.Add(filter.id); } } finally { if (entries != IntPtr.Zero) FwpmFreeMemory0(ref entries); } } } finally { FwpmFilterDestroyEnumHandle0(engine, enumeration); }
         Check(FwpmTransactionBegin0(engine, 0)); bool committed = false;
-        try { foreach (var id in ids) { uint code = FwpmFilterDeleteById0(engine, id); if (code != 0x80320003) Check(code); } Check(FwpmTransactionCommit0(engine)); committed = true; } finally { if (!committed) FwpmTransactionAbort0(engine); }
+        try { int removed=0; foreach (var id in ids) { PolicyOperation.Check(); PolicyOperation.Report("removing",removed++,ids.Count,"Removing Watchmen filters…"); uint code = FwpmFilterDeleteById0(engine, id); if (code != 0x80320003) Check(code); } PolicyOperation.Check(); PolicyOperation.Report("committing",0,0,"Windows is committing the removal…",false); Check(FwpmTransactionCommit0(engine)); committed = true; } finally { if (!committed) FwpmTransactionAbort0(engine); }
     }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct Display { [MarshalAs(UnmanagedType.LPWStr)] public string? name; [MarshalAs(UnmanagedType.LPWStr)] public string? description; }
     [StructLayout(LayoutKind.Sequential)] struct Blob { public uint size; public IntPtr data; }
@@ -133,7 +142,8 @@ sealed class NetworkFilters : IDisposable
     [StructLayout(LayoutKind.Sequential)] struct Action { public uint type; public Guid key; }
     [StructLayout(LayoutKind.Sequential)] struct SubLayer { public Guid key; public Display display; public uint flags; public IntPtr provider; public Blob providerData; public ushort weight; }
     [StructLayout(LayoutKind.Sequential)] struct Filter { public Guid key; public Display display; public uint flags; public IntPtr provider; public Blob providerData; public Guid layerKey; public Guid subLayerKey; public Value weight; public uint conditionCount; public IntPtr conditions; public Action action; public ulong context1, context2; public IntPtr reserved; public ulong id; public Value effectiveWeight; }
-    [DllImport("fwpuclnt.dll", CharSet = CharSet.Unicode)] static extern uint FwpmEngineOpen0(string? server, uint auth, IntPtr identity, IntPtr session, out IntPtr engine);
+    [StructLayout(LayoutKind.Sequential)] struct Session { public Guid key; public Display display; public uint flags, transactionWait, processId; public IntPtr sid, username; public int kernelMode; }
+    [DllImport("fwpuclnt.dll", CharSet = CharSet.Unicode)] static extern uint FwpmEngineOpen0(string? server, uint auth, IntPtr identity, ref Session session, out IntPtr engine);
     [DllImport("fwpuclnt.dll")] static extern uint FwpmEngineClose0(IntPtr engine);
     [DllImport("fwpuclnt.dll")] static extern uint FwpmTransactionBegin0(IntPtr engine, uint flags);
     [DllImport("fwpuclnt.dll")] static extern uint FwpmTransactionCommit0(IntPtr engine);

@@ -90,6 +90,7 @@ declare global {
         enabled: boolean,
       ) => Promise<Result<RuleState>>;
       firewallForget: (id: string) => Promise<Result<RuleState>>;
+      firewallCancel: () => Promise<Result<RuleState>>;
       firewallUnblockAll: () => Promise<Result<RuleState>>;
       firewallPickApp: (only?: boolean) => Promise<Result<RulePreview | null>>;
       setLocations: (enabled: boolean) => Promise<boolean>;
@@ -459,7 +460,7 @@ function App() {
               Settings & privacy
             </button>
             <div className="version">
-              <span className="tiny-logo">w</span> Watchmen <span>v0.5.0</span>
+              <span className="tiny-logo">w</span> Watchmen <span>v0.6.0</span>
             </div>
           </div>
         </aside>

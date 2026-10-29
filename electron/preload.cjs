@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("watchmen", {
   firewallToggle: (id, enabled) =>
     ipcRenderer.invoke("firewall-toggle", id, enabled),
   firewallForget: (id) => ipcRenderer.invoke("firewall-forget", id),
+  firewallCancel: () => ipcRenderer.invoke("firewall-cancel"),
   firewallUnblockAll: () => ipcRenderer.invoke("firewall-unblock-all"),
   firewallPickApp: (only = false) =>
     ipcRenderer.invoke("firewall-pick-app", only),

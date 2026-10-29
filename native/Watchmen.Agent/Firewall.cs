@@ -24,10 +24,12 @@ static class Firewall
         public int NativeRuleCount { get; set; }
         public bool Enabled { get; set; } = true;
         public bool Partial { get; set; }
+        public bool AllowLocalNetwork {get;set;}=true;
+        public bool AllowUnknown {get;set;}
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     }
     sealed class Record { public int Version { get; set; } = 1; public Rule Rule { get; set; } = new(); public string[] Ranges { get; set; } = []; }
-    sealed class Request { public string Action { get; set; } = "list"; public Rule? Rule { get; set; } public string Id { get; set; } = ""; public bool Enabled { get; set; } public string[] Ranges { get; set; } = []; }
+    sealed class Request { public string Action { get; set; } = "list"; public Rule? Rule { get; set; } public string Id { get; set; } = ""; public bool Enabled { get; set; } public string[] Ranges { get; set; } = []; public bool Control {get;set;} }
     static bool Admin => new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
     static string FileName(string id) => Path.Combine(Store, Guid.Parse(id).ToString() + ".json");
     static void SecureStore()
@@ -52,14 +54,14 @@ static class Firewall
         try { File.WriteAllText(temporary, JsonSerializer.Serialize(record, Json)); File.Move(temporary, filename, true); }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
-    static int FilterCount(Rule rule, string[] ranges) => rule.Kind is "app" or "onlyApp" ? 4 : rule.Kind == "region" ? checked(ranges.Length * 2) : 2;
+    static int FilterCount(Rule rule, string[] ranges) => rule.Kind is "app" or "onlyApp" ? 4 : rule.Kind is "region" or "onlyRegion" ? checked(ranges.Length * 2) : 2;
     static Record Load(string id)
     {
         var file = new FileInfo(FileName(id));
         if (!file.Exists) throw new InvalidOperationException("This Watchmen rule is no longer available.");
         if (file.Length > 16 * 1024 * 1024 || (file.Attributes & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException("The saved policy record is invalid. Unblock all Watchmen rules to remove restrictions.");
         var record = JsonSerializer.Deserialize<Record>(File.ReadAllText(file.FullName), Json) ?? throw new InvalidOperationException("The saved rule is unreadable.");
-        if (record.Version != 1 || record.Rule.Id != Guid.Parse(id).ToString() || record.Ranges.Length > 250000 || !new[] { "app", "connection", "destination", "region", "onlyApp" }.Contains(record.Rule.Kind)) throw new InvalidOperationException("The saved rule has an unsupported format.");
+        if (record.Version != 1 || record.Rule.Id != Guid.Parse(id).ToString() || record.Ranges.Length > 250000 || !new[] { "app", "connection", "destination", "region", "onlyRegion", "onlyApp" }.Contains(record.Rule.Kind)) throw new InvalidOperationException("The saved rule has an unsupported format.");
         record.Rule.NativeRuleCount = FilterCount(record.Rule, record.Ranges);
         if (record.Rule.NativeRuleCount < 1) throw new InvalidOperationException("The saved rule has no filter scope.");
         return record;
@@ -94,7 +96,7 @@ static class Firewall
     }
     static void Validate(Rule rule, string[] ranges)
     {
-        if (!new[] { "app", "connection", "destination", "region", "onlyApp" }.Contains(rule.Kind)) throw new InvalidOperationException("Choose an app, endpoint, region, or app isolation rule.");
+        if (!new[] { "app", "connection", "destination", "region", "onlyRegion", "onlyApp" }.Contains(rule.Kind)) throw new InvalidOperationException("Choose an app, endpoint, region, or isolation rule.");
         if (rule.Label.Length is 0 or > 160 || rule.AppPath.Length > 4096) throw new InvalidOperationException("The rule label or executable path is too long.");
         if (rule.Kind is "app" or "connection" or "onlyApp")
         {
@@ -107,7 +109,7 @@ static class Firewall
             rule.Address = address.ToString();
         }
         if (rule.Kind == "connection" && (rule.Port is < 1 or > 65535 || !new[] { "TCP", "UDP" }.Contains(rule.Protocol))) throw new InvalidOperationException("Choose a remote TCP or UDP port.");
-        if (rule.Kind == "region")
+        if (rule.Kind is "region" or "onlyRegion")
         {
             if (rule.Countries.Length is 0 or > 250 || rule.Countries.Any(c => !Regex.IsMatch(c, "^[A-Z]{2}$")) || !Regex.IsMatch(rule.SourceMonth, "^20[0-9]{2}-(0[1-9]|1[0-2])$")) throw new InvalidOperationException("Choose valid countries and a dated range dataset.");
             if (ranges.Length is 0 or > 250000) throw new InvalidOperationException("Choose between one and 250,000 address ranges.");
@@ -132,15 +134,17 @@ static class Firewall
     {
         var record = Load(id);
         if (enabled) Validate(record.Rule, record.Ranges);
-        using var engine = new NetworkFilters(); engine.ApplyRule(record.Rule, record.Ranges, enabled);
+        using var engine = new NetworkFilters();
+        if(enabled&&record.Rule.Kind=="onlyRegion")CheckOtherRegionMode(record.Rule.Id,engine);
+        engine.ApplyRule(record.Rule, record.Ranges, enabled);
         record.Rule.Enabled = enabled; record.Rule.Partial = false; Save(record);
     }
     static void Add(Rule rule, string[] ranges)
     {
         Validate(rule, ranges);
-        var existing = Records().FirstOrDefault(r => r.Rule.Kind == rule.Kind && r.Rule.AppPath.Equals(rule.AppPath, StringComparison.OrdinalIgnoreCase) && r.Rule.Address == rule.Address && r.Rule.Protocol == rule.Protocol && r.Rule.Port == rule.Port && r.Rule.Countries.Order().SequenceEqual(rule.Countries.Order()));
+        var existing = Records().FirstOrDefault(r => r.Rule.Kind == rule.Kind && r.Rule.AppPath.Equals(rule.AppPath, StringComparison.OrdinalIgnoreCase) && r.Rule.Address == rule.Address && r.Rule.Protocol == rule.Protocol && r.Rule.Port == rule.Port && r.Rule.Countries.Order().SequenceEqual(rule.Countries.Order())&&(rule.Kind!="onlyRegion"||r.Rule.AllowLocalNetwork==rule.AllowLocalNetwork&&r.Rule.AllowUnknown==rule.AllowUnknown));
         if (existing != null) {
-            if(rule.Kind=="region"&&(existing.Rule.SourceMonth!=rule.SourceMonth||!existing.Ranges.SequenceEqual(ranges)))throw new InvalidOperationException("A saved block for these countries uses a different snapshot. Unblock and remove it before applying this new review.");
+            if((rule.Kind is "region" or "onlyRegion")&&(existing.Rule.SourceMonth!=rule.SourceMonth||!existing.Ranges.SequenceEqual(ranges)))throw new InvalidOperationException("A saved rule for these countries uses a different snapshot. Turn off and remove it before applying this new review.");
             SetEnabled(existing.Rule.Id, true); return;
         }
         rule.Id = rule.Kind == "onlyApp" ? NetworkFilters.RuleId.ToString() : Guid.NewGuid().ToString();
@@ -151,9 +155,10 @@ static class Firewall
         // Record recovery data before touching BFE. An interrupted WFP
         // transaction rolls back automatically; status reads committed filters.
         Save(record);
-        try { using var engine = new NetworkFilters(); engine.ApplyRule(rule, ranges, true); }
+        try { using var engine = new NetworkFilters();if(rule.Kind=="onlyRegion")CheckOtherRegionMode(rule.Id,engine); engine.ApplyRule(rule, ranges, true,fresh:previous==null); }
         catch { try { if (previous != null) Save(previous); else File.Delete(FileName(rule.Id)); } catch { } throw; }
     }
+    static void CheckOtherRegionMode(string id,NetworkFilters engine){foreach(var record in Records().Where(r=>r.Rule.Kind=="onlyRegion"&&r.Rule.Id!=id))if(engine.RuleState(record.Rule).enabled)throw new InvalidOperationException("Turn off the existing country-only mode before enabling another selection. Existing block rules continue to apply.");}
     public static async Task Run(bool reset = false)
     {
         try
@@ -162,15 +167,19 @@ static class Firewall
             if (reset) request = new Request { Action = "unblock-all" };
             else
             {
-                string input = await Console.In.ReadToEndAsync();
+                string input = await Console.In.ReadLineAsync()??"";
+                if(input.Trim()=="{")input+="\n"+await Console.In.ReadToEndAsync();
                 if (input.Length > 16 * 1024 * 1024) throw new InvalidOperationException("The request exceeds the 16 MB size limit.");
                 request = JsonSerializer.Deserialize<Request>(input, Json) ?? throw new InvalidOperationException("No rule was supplied.");
             }
             if (request.Action == "list") { Console.WriteLine(JsonSerializer.Serialize(new { ok = true, value = Status() }, Json)); return; }
+            PolicyOperation.Start(request.Control);
             using var mutex = new Mutex(false, "Global\\Watchmen.NetworkRules.v1"); bool held = false;
             try
             {
-                try { held = mutex.WaitOne(TimeSpan.FromSeconds(60)); } catch (AbandonedMutexException) { held = true; }
+                PolicyOperation.Report("waiting",0,0,"Waiting for other Watchmen rule changes…");
+                var deadline=DateTimeOffset.UtcNow.AddSeconds(30);
+                do{PolicyOperation.Check();try{held=mutex.WaitOne(200);}catch(AbandonedMutexException){held=true;}}while(!held&&DateTimeOffset.UtcNow<deadline);
                 if (!held) throw new InvalidOperationException("Another Watchmen window is updating rules. Try shortly.");
                 if (request.Action != "list")
                 {
@@ -191,14 +200,18 @@ static class Firewall
                         else throw new InvalidOperationException("Unsupported network-rule action.");
                     }
                 }
-                Console.WriteLine(JsonSerializer.Serialize(new { ok = true, value = Status() }, Json));
+                PolicyOperation.Report("verifying",0,0,"Verifying committed Windows rules…",false);
+                var status=Status();PolicyOperation.Stop().GetAwaiter().GetResult();
+                Console.WriteLine(JsonSerializer.Serialize(new { ok = true, value = status }, Json));
             }
             finally { if (held) mutex.ReleaseMutex(); }
         }
         catch (Exception error)
         {
+            await PolicyOperation.Stop();
             string message = error is InvalidOperationException ? error.Message : $"Windows could not update the rule (0x{error.HResult:X8}). Refresh rules to check committed state; unrelated Windows policies were not changed.";
-            Console.WriteLine(JsonSerializer.Serialize(new { ok = false, error = message }, Json)); Environment.ExitCode = 1;
+            bool cancelled=error is OperationCanceledException;
+            Console.WriteLine(JsonSerializer.Serialize(new { ok = false,cancelled, error = cancelled?"Rule change cancelled. The uncommitted transaction was rolled back.":message }, Json)); Environment.ExitCode = cancelled?2:1;
         }
     }
 }

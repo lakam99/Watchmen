@@ -226,6 +226,7 @@ safeHandle("firewall-preview", (input) => firewall.prepare(input));
 safeHandle("firewall-apply", (id) => firewall.apply(id));
 safeHandle("firewall-toggle", (id, enabled) => firewall.toggle(id, enabled));
 safeHandle("firewall-forget", (id) => firewall.forget(id));
+safeHandle("firewall-cancel", () => firewall.cancel());
 safeHandle("firewall-unblock-all", () => firewall.unblockAll());
 safeHandle("firewall-pick-app", async (only) => {
   const result = await dialog.showOpenDialog(win, {

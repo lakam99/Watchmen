@@ -55,10 +55,17 @@ static class FirewallProbe
             bool regionBlocksUdp = !await Probe(selected, "127.0.0.1", port, true) && !await Probe(other, "::1", port, true);
             using (var filter = new NetworkFilters(true)) filter.ClearOwned();
             bool regionUnblockRestores = await Probe(selected, "127.0.0.1", port) && await Probe(other, "::1", port);
+            region.Kind = "onlyRegion"; region.NativeRuleCount = 2;
+            string[] outsideSelection = ["127.0.0.0-127.255.255.255"];
+            using (var filter = new NetworkFilters(true)) filter.ApplyRule(region, outsideSelection, true, port, fresh:true);
+            bool countryOnlyBlocksOutside = !await Probe(other,"127.0.0.1",port) && !await Probe(selected,"127.0.0.1",port,true);
+            bool countryOnlyAllowsSelected = await Probe(other,"::1",port) && await Probe(selected,"::1",port,true);
+            using (var filter = new NetworkFilters(true)) filter.ApplyRule(region,outsideSelection,false,port);
+            if(!countryOnlyBlocksOutside || !countryOnlyAllowsSelected)throw new InvalidOperationException("Scoped country-only enforcement failed.");
             if (!(allowedV4 && deniedV4 && allowedV6 && deniedV6 && restored && udpAllowed && udpDenied && regionBlocksBothApps && regionBlocksUdp && regionUnblockRestores && existingTrafficBlocked)) throw new InvalidOperationException($"Scoped filter test failed: allowed4={allowedV4}, blocked4={deniedV4}, allowed6={allowedV6}, blocked6={deniedV6}, udpAllowed={udpAllowed}, udpBlocked={udpDenied}, regionBlocks={regionBlocksBothApps}, regionUdp={regionBlocksUdp}, existingTrafficBlocked={existingTrafficBlocked}, restored={restored && regionUnblockRestores}.");
             var bulk = new Firewall.Rule { Id = Guid.NewGuid().ToString(), Kind = "region", Label = "Scoped bulk region probe", NativeRuleCount = 2048 }; var bulkRanges = Enumerable.Repeat("127.0.0.1-127.0.0.1", 1024).ToArray(); var watch = Stopwatch.StartNew();
             try { using (var filter = new NetworkFilters(true)) filter.ApplyRule(bulk, bulkRanges, true, port); watch.Stop(); } finally { using var filter = new NetworkFilters(true); filter.ClearOwned(); }
-            Console.WriteLine(JsonSerializer.Serialize(new { passed = true, allowedV4, deniedV4, allowedV6, deniedV6, udpAllowed, udpDenied, restored, regionBlocksBothApps, regionBlocksUdp, regionUnblockRestores, existingTrafficBlocked, recoveryRemovesOwnedFilters = true, bulkFilters = bulk.NativeRuleCount, bulkApplyMs = watch.ElapsedMilliseconds, scope = "Loopback and one private test port only", persistsAfterEngineClose = true }));
+            Console.WriteLine(JsonSerializer.Serialize(new { passed = true, countryOnlyBlocksOutside, countryOnlyAllowsSelected, allowedV4, deniedV4, allowedV6, deniedV6, udpAllowed, udpDenied, restored, regionBlocksBothApps, regionBlocksUdp, regionUnblockRestores, existingTrafficBlocked, recoveryRemovesOwnedFilters = true, bulkFilters = bulk.NativeRuleCount, bulkApplyMs = watch.ElapsedMilliseconds, scope = "Loopback and one private test port only", persistsAfterEngineClose = true }));
         }
         catch (Exception error) { Console.WriteLine(JsonSerializer.Serialize(new { passed = false, error = error.Message })); Environment.ExitCode = 1; }
         finally { using (var filter = new NetworkFilters(true)) { filter.ApplyRule(rule, [], false, port); filter.ApplyRule(region, regionRanges, false, port); } cancel.Cancel(); v4.Stop(); v6.Stop(); await Task.WhenAll(listeners); await Task.WhenAll(echoes); }

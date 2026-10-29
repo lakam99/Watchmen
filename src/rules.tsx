@@ -22,7 +22,8 @@ import {
 import type { Flow } from "./model";
 export type NetworkRule = {
   id: string;
-  kind: "app" | "connection" | "destination" | "region" | "onlyApp";
+  kind:
+    "app" | "connection" | "destination" | "region" | "onlyRegion" | "onlyApp";
   label: string;
   appPath: string;
   address: string;
@@ -35,6 +36,20 @@ export type NetworkRule = {
   enabled: boolean;
   partial: boolean;
   createdAt: string;
+  allowLocalNetwork?: boolean;
+  allowUnknown?: boolean;
+};
+export type RuleJob = {
+  id: string;
+  status: string;
+  stage: string;
+  message: string;
+  completed: number;
+  total: number;
+  canCancel: boolean;
+  startedAt: string;
+  lastAdvancedAt: string;
+  endedAt?: string;
 };
 export type RuleState = {
   rules: NetworkRule[];
@@ -46,6 +61,7 @@ export type RuleState = {
   error: string | null;
   busy: boolean;
   phase: string;
+  job?: RuleJob | null;
 };
 export type RulePreview = { id: string; rule: NetworkRule; expires: number };
 export type RuleCatalog = {
@@ -54,7 +70,13 @@ export type RuleCatalog = {
   attribution: string;
   sourceUrl: string;
 };
-export type RuleInput = { kind: string; flowId?: string; countries?: string[] };
+export type RuleInput = {
+  kind: string;
+  flowId?: string;
+  countries?: string[];
+  allowLocalNetwork?: boolean;
+  allowUnknown?: boolean;
+};
 type Context = {
   state: RuleState | null;
   catalog: RuleCatalog | null;
@@ -86,6 +108,8 @@ export function RuleProvider({
   const [state, setState] = useState<RuleState | null>(null),
     [catalog, setCatalog] = useState<RuleCatalog | null>(null),
     [review, setReview] = useState<RulePreview | null>(null),
+    [minimized, setMinimized] = useState(false),
+    [dismissedTask, setDismissedTask] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [acknowledged, setAcknowledged] = useState(false),
@@ -103,7 +127,7 @@ export function RuleProvider({
     window.watchmen?.firewallCatalog().then((r) => {
       if (active && r.ok) setCatalog(r.value);
     });
-    const timer = setInterval(poll, 2000);
+    const timer = setInterval(poll, 500);
     return () => {
       active = false;
       clearInterval(timer);
@@ -134,7 +158,11 @@ export function RuleProvider({
       if (r) {
         if (r.ok) {
           setState(r.value);
-          setMessage(success);
+          setMessage(
+            r.value?.job?.status === "needsVerification"
+              ? r.value.job.message
+              : success,
+          );
           return true;
         }
         setError(r.error);
@@ -147,6 +175,7 @@ export function RuleProvider({
   const open = (r: any) => {
     if (r?.ok && r.value) {
       setReview(r.value);
+      setMinimized(false);
       setAcknowledged(false);
       setError("");
     } else if (r && !r.ok) setError(r.error);
@@ -195,7 +224,7 @@ export function RuleProvider({
           {message}
         </div>
       )}
-      {error && !review && (
+      {error && (!review || minimized) && (
         <div className="policy-toast error" role="alert">
           <Info size={17} />
           {error}
@@ -208,11 +237,51 @@ export function RuleProvider({
           </button>
         </div>
       )}
-      {review && (
+      {(state?.busy || (state?.job && state.job.id !== dismissedTask)) &&
+        (!review || minimized) && (
+          <aside className="policy-task card" aria-label="Network rule task">
+            <div className="policy-task-heading">
+              <strong>
+                {state?.busy ? "Network rule task" : "Rule task finished"}
+              </strong>
+              {!state?.busy && (
+                <button
+                  className="icon-button"
+                  aria-label="Dismiss completed task"
+                  onClick={() => setDismissedTask(state?.job?.id || "")}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+            <TaskProgress state={state} />
+            <div className="policy-task-actions">
+              {review && (
+                <button className="button" onClick={() => setMinimized(false)}>
+                  Show task
+                </button>
+              )}
+              {state?.busy && state.job?.canCancel && (
+                <button
+                  className="button"
+                  onClick={async () => {
+                    const r = await window.watchmen?.firewallCancel();
+                    if (r?.ok) setState(r.value);
+                    else if (r) setError(r.error);
+                  }}
+                >
+                  Cancel task
+                </button>
+              )}
+            </div>
+          </aside>
+        )}
+      {review && !minimized && (
         <div
           className="modal-backdrop policy-backdrop"
           onClick={() => {
-            if (!busy && !state?.busy) setReview(null);
+            if (busy || state?.busy) setMinimized(true);
+            else setReview(null);
           }}
         >
           <section
@@ -225,7 +294,8 @@ export function RuleProvider({
               if (e.key === "Escape") {
                 e.preventDefault();
                 e.stopPropagation();
-                if (!busy && !state?.busy) setReview(null);
+                if (busy || state?.busy) setMinimized(true);
+                else setReview(null);
               }
               if (e.key === "Tab") {
                 const items = Array.from(
@@ -251,20 +321,27 @@ export function RuleProvider({
                 <h2 id="policy-review-title">
                   {review.rule.kind === "onlyApp"
                     ? "Allow network access to only this app"
-                    : review.rule.kind === "region"
-                      ? "Block selected regions"
-                      : review.rule.kind === "app"
-                        ? "Block this application"
-                        : review.rule.kind === "connection"
-                          ? "Block this endpoint for this app"
-                          : "Block this destination for every app"}
+                    : review.rule.kind === "onlyRegion"
+                      ? "Allow only selected countries / regions"
+                      : review.rule.kind === "region"
+                        ? "Block selected regions"
+                        : review.rule.kind === "app"
+                          ? "Block this application"
+                          : review.rule.kind === "connection"
+                            ? "Block this endpoint for this app"
+                            : "Block this destination for every app"}
                 </h2>
               </div>
               <button
                 className="icon-button"
-                aria-label="Close rule preview"
-                disabled={busy || state?.busy}
-                onClick={() => setReview(null)}
+                aria-label={
+                  busy || state?.busy
+                    ? "Minimize rule task"
+                    : "Close rule preview"
+                }
+                onClick={() =>
+                  busy || state?.busy ? setMinimized(true) : setReview(null)
+                }
               >
                 <X size={18} />
               </button>
@@ -310,7 +387,7 @@ export function RuleProvider({
                       : "IPv4"
                     : "IPv4 and IPv6"}
                 </dd>
-                {review.rule.kind === "region" && (
+                {["region", "onlyRegion"].includes(review.rule.kind) && (
                   <>
                     <dt>Dataset</dt>
                     <dd>
@@ -338,6 +415,41 @@ export function RuleProvider({
                   selections can take several minutes to apply. The rule keeps
                   this snapshot until removed and recreated.
                 </p>
+              )}
+              {review.rule.kind === "onlyRegion" && (
+                <>
+                  <p className="policy-impact severe">
+                    Restricts every app to destinations assigned to the selected
+                    countries. Other country destinations are blocked in both
+                    directions. Existing blocks still apply, including blocks
+                    for selected countries. Location is approximate; VPNs and
+                    CDNs can affect coverage. Large selections can take several
+                    minutes.
+                  </p>
+                  <dl className="rule-scope">
+                    <dt>Local network</dt>
+                    <dd>
+                      {review.rule.allowLocalNetwork
+                        ? "Exempt: private, loopback, link-local, shared carrier and multicast addresses"
+                        : "Restricted too"}
+                    </dd>
+                    <dt>Unknown public locations</dt>
+                    <dd>
+                      {review.rule.allowUnknown
+                        ? "Allowed when absent from the country dataset or marked unknown"
+                        : "Blocked"}
+                    </dd>
+                  </dl>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={acknowledged}
+                      onChange={(e) => setAcknowledged(e.target.checked)}
+                    />
+                    I understand that destinations outside this selection will
+                    lose access.
+                  </label>
+                </>
               )}
               {review.rule.kind === "connection" && (
                 <p className="policy-impact">
@@ -388,13 +500,15 @@ export function RuleProvider({
                   {error}
                 </p>
               )}
+              {(busy || state?.busy) && <TaskProgress state={state} />}
               <div className="policy-dialog-actions">
                 <button
                   className="button"
-                  disabled={busy || state?.busy}
-                  onClick={() => setReview(null)}
+                  onClick={() =>
+                    busy || state?.busy ? setMinimized(true) : setReview(null)
+                  }
                 >
-                  Cancel
+                  {busy || state?.busy ? "Minimize task" : "Cancel"}
                 </button>
                 {admin ? (
                   <button
@@ -402,7 +516,8 @@ export function RuleProvider({
                     disabled={
                       busy ||
                       state?.busy ||
-                      (review.rule.kind === "onlyApp" && !acknowledged)
+                      (["onlyApp", "onlyRegion"].includes(review.rule.kind) &&
+                        !acknowledged)
                     }
                     onClick={async () => {
                       if (
@@ -410,7 +525,9 @@ export function RuleProvider({
                           () => window.watchmen?.firewallApply(review.id),
                           review.rule.kind === "onlyApp"
                             ? "Only-app mode enabled."
-                            : "Persistent block enabled.",
+                            : review.rule.kind === "onlyRegion"
+                              ? "Country-only mode enabled."
+                              : "Persistent block enabled.",
                         )
                       )
                         setReview(null);
@@ -425,7 +542,9 @@ export function RuleProvider({
                       ? state?.phase || "Applying rule…"
                       : review.rule.kind === "onlyApp"
                         ? "Enable only-app mode"
-                        : "Block now"}
+                        : review.rule.kind === "onlyRegion"
+                          ? "Enable country-only mode"
+                          : "Block now"}
                   </button>
                 ) : (
                   <button className="button primary" onClick={elevate}>
@@ -441,28 +560,99 @@ export function RuleProvider({
     </RulesContext.Provider>
   );
 }
+function TaskProgress({ state }: { state: RuleState | null }) {
+  const job = state?.job,
+    running = !!state?.busy;
+  const stale =
+    running && job && Date.now() - Date.parse(job.lastAdvancedAt) > 30000;
+  const seconds = job
+    ? Math.max(
+        0,
+        Math.floor(
+          (Date.parse(job.endedAt || new Date().toISOString()) -
+            Date.parse(job.startedAt)) /
+            1000,
+        ),
+      )
+    : 0;
+  return (
+    <div className="policy-progress" role="status" aria-live="polite">
+      <p>
+        {running
+          ? job?.message || state?.phase || "Preparing network rules…"
+          : job?.message}
+      </p>
+      {running &&
+        (job && job.total > 0 ? (
+          <progress
+            aria-label="Windows filter progress"
+            max={job.total}
+            value={job.completed}
+          />
+        ) : (
+          <progress aria-label="Windows rule operation in progress" />
+        ))}
+      {job && (
+        <small>
+          {running && job.total > 0
+            ? `${job.completed.toLocaleString()} / ${job.total.toLocaleString()} filters · `
+            : ""}
+          {Math.floor(seconds / 60)}m {seconds % 60}s{running ? " elapsed" : ""}
+        </small>
+      )}
+      {running && (
+        <small>
+          Rules become active together after Windows commits. You can continue
+          monitoring.
+        </small>
+      )}
+      {stale && (
+        <small className="policy-stall">
+          Windows has reported no new completed steps for over 30 seconds. The
+          helper is still responding; completion time is unknown.
+        </small>
+      )}
+    </div>
+  );
+}
 export function RuleStatusBanner() {
   const { state, busy, toggle, admin, elevate } = useRules();
-  const isolation = state?.rules.find((r) => r.kind === "onlyApp" && r.enabled);
-  if (!isolation) return null;
+  const active = (state?.rules || []).filter(
+    (r) => r.enabled && ["onlyApp", "onlyRegion"].includes(r.kind),
+  );
   return (
-    <div className="banner isolation-banner">
-      <ShieldCheck size={18} />
-      <span>
-        <strong>Only-app mode: {isolation.label}.</strong> Other executables are
-        restricted.
-        {!state?.isolationVerified
-          ? " Saved state; administrator verification is unavailable."
-          : ""}
-      </span>
-      <button
-        disabled={busy}
-        onClick={() => (admin ? toggle(isolation) : elevate())}
-      >
-        {admin ? "Turn off app isolation" : "Restart to unblock"}{" "}
-        <Unlock size={14} />
-      </button>
-    </div>
+    <>
+      {active.map((rule) => (
+        <div className="banner isolation-banner" key={rule.id}>
+          <ShieldCheck size={18} />
+          <span>
+            <strong>
+              {rule.kind === "onlyRegion"
+                ? "Country-only mode"
+                : "Only-app mode"}
+              : {rule.label}.
+            </strong>{" "}
+            {rule.kind === "onlyRegion"
+              ? "Other destinations are restricted."
+              : "Other executables are restricted."}
+            {!state?.isolationVerified
+              ? " Saved state; Windows verification is unavailable."
+              : ""}
+          </span>
+          <button
+            disabled={busy}
+            onClick={() => (admin ? toggle(rule) : elevate())}
+          >
+            {admin
+              ? rule.kind === "onlyRegion"
+                ? "Turn off country-only mode"
+                : "Turn off app isolation"
+              : "Restart to unblock"}
+            <Unlock size={14} />
+          </button>
+        </div>
+      ))}
+    </>
   );
 }
 export function RuleActions({
@@ -571,6 +761,9 @@ export function NetworkRules() {
   } = useRules();
   const [selection, setSelection] = useState<string[]>([]),
     [countrySearch, setCountrySearch] = useState(""),
+    [countryMode, setCountryMode] = useState("region"),
+    [allowLocalNetwork, setAllowLocalNetwork] = useState(true),
+    [allowUnknown, setAllowUnknown] = useState(false),
     [search, setSearch] = useState(""),
     [filter, setFilter] = useState("all");
   const rules = (state?.rules || []).filter(
@@ -659,11 +852,63 @@ export function NetworkRules() {
               <h2>
                 <Globe2 size={19} /> Countries and regions
               </h2>
-              <p>Block IPv4 and IPv6 ranges across every app.</p>
+              <p>Control IPv4 and IPv6 destinations across every app.</p>
             </div>
             <span className="count-pill">{selection.length} selected</span>
           </div>
           <div className="rule-create-body">
+            <label className="policy-mode">
+              Country rule mode
+              <select
+                aria-label="Country rule mode"
+                value={countryMode}
+                disabled={busy}
+                onChange={(e) => setCountryMode(e.target.value)}
+              >
+                <option value="region">
+                  Block selected countries / regions
+                </option>
+                <option value="onlyRegion">
+                  Allow only selected countries / regions
+                </option>
+              </select>
+            </label>
+            <button
+              className="button"
+              disabled={busy}
+              onClick={() => {
+                setSelection(["CA", "US"]);
+                setCountryMode("onlyRegion");
+              }}
+            >
+              Allow Canada + US only
+            </button>
+            {countryMode === "onlyRegion" && (
+              <div className="policy-options">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={allowLocalNetwork}
+                    disabled={busy}
+                    onChange={(e) => setAllowLocalNetwork(e.target.checked)}
+                  />
+                  Keep local-network traffic available
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={allowUnknown}
+                    disabled={busy}
+                    onChange={(e) => setAllowUnknown(e.target.checked)}
+                  />
+                  Allow public addresses with unknown country
+                </label>
+                <p>
+                  Everything outside your selection is blocked. Existing app and
+                  destination blocks continue to apply.
+                </p>
+              </div>
+            )}
             <div className="region-shortcuts">
               {catalog?.regions.map((region) => (
                 <button
@@ -698,7 +943,11 @@ export function NetworkRules() {
             </div>
             <div
               className="country-rule-picker"
-              aria-label="Countries to block"
+              aria-label={
+                countryMode === "onlyRegion"
+                  ? "Countries to allow"
+                  : "Countries to block"
+              }
             >
               {countryRows.map((c) => (
                 <label key={c.code}>
@@ -724,11 +973,18 @@ export function NetworkRules() {
                 className="button danger"
                 disabled={busy || !selection.length}
                 onClick={() =>
-                  preview({ kind: "region", countries: selection })
+                  preview({
+                    kind: countryMode,
+                    countries: selection,
+                    allowLocalNetwork,
+                    allowUnknown,
+                  })
                 }
               >
                 <Ban size={15} />
-                Review region block
+                {countryMode === "onlyRegion"
+                  ? "Review country-only mode"
+                  : "Review region block"}
               </button>
               <button className="text-button" onClick={() => setSelection([])}>
                 Clear selection
@@ -823,6 +1079,7 @@ export function NetworkRules() {
                           connection: "App + remote IP / protocol / port",
                           destination: "Remote IP · every app",
                           region: "Countries · every app",
+                          onlyRegion: "Country-only mode / every app",
                           onlyApp: "Only-app mode · system wide",
                         }[rule.kind]
                       }
@@ -830,7 +1087,7 @@ export function NetworkRules() {
                     <code>
                       {rule.appPath ||
                         rule.address ||
-                        (rule.kind === "region"
+                        (["region", "onlyRegion"].includes(rule.kind)
                           ? rule.countries.join(", ")
                           : "")}
                     </code>
@@ -841,20 +1098,26 @@ export function NetworkRules() {
                         "rule-state " + (rule.enabled ? "blocked" : "")
                       }
                     >
-                      {rule.partial
-                        ? "Partially applied"
-                        : rule.enabled
-                          ? rule.kind === "onlyApp"
-                            ? "Isolation active"
-                            : "Blocked"
-                          : "Unblocked"}
+                      {!state?.isolationVerified
+                        ? rule.enabled
+                          ? "Saved active / unverified"
+                          : "Saved inactive / unverified"
+                        : rule.partial
+                          ? "Partially applied"
+                          : rule.enabled
+                            ? rule.kind === "onlyApp"
+                              ? "Isolation active"
+                              : rule.kind === "onlyRegion"
+                                ? "Country-only active"
+                                : "Blocked"
+                            : "Unblocked"}
                     </span>
                     {rule.kind === "onlyApp" && !state?.isolationVerified && (
                       <small>Saved state · unverified</small>
                     )}
                   </td>
                   <td>
-                    {rule.kind === "region" ? (
+                    {["region", "onlyRegion"].includes(rule.kind) ? (
                       <>
                         <strong>{rule.sourceMonth}</strong>
                         <small>

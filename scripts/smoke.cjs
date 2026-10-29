@@ -23,8 +23,8 @@ const path = require("node:path");
   const application = await electron.launch({
     timeout:60000,
     ...(executablePath
-      ? { executablePath, args: [] }
-      : { args: [process.cwd()] }),
+      ? { executablePath, args: ["--user-data-dir=" + path.join(env.WATCHMEN_WORKSPACE_DIR, "chromium")] }
+      : { args: [process.cwd(), "--user-data-dir=" + path.join(env.WATCHMEN_WORKSPACE_DIR, "chromium")] }),
     env,
   });
   const errors = [];

@@ -12,6 +12,7 @@
     name: "Watchmen",
     platform: "win32",
     arch: "x64",
+    electronZipDir: process.env.WATCHMEN_ELECTRON_ZIP_DIR || undefined,
     icon: "assets/watchmen.ico",
     overwrite: true,
     asar: { unpackDir: "native/bin" },

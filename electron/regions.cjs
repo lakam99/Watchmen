@@ -82,6 +82,103 @@ function rangeToCidrs(first, last, bits) {
   }
   return result;
 }
+// Intervals keep a country-only selection compact instead of enumerating every
+// other country. Both address families include unmapped space by default.
+function mergeIntervals(items) {
+  const sorted = items
+    .slice()
+    .sort(
+      (a, b) =>
+        a.bits - b.bits || (a.first < b.first ? -1 : a.first > b.first ? 1 : 0),
+    );
+  const result = [];
+  for (const item of sorted) {
+    const last = result.at(-1);
+    if (last && last.bits === item.bits && item.first <= last.last + 1n)
+      last.last = last.last > item.last ? last.last : item.last;
+    else result.push({ ...item });
+  }
+  return result;
+}
+function parseRange(range) {
+  const [a, b] = range.split("-"),
+    first = ipNumber(a),
+    last = ipNumber(b || a);
+  return { bits: first.bits, first: first.value, last: last.value };
+}
+function complement(items) {
+  const result = [];
+  for (const bits of [32, 128]) {
+    let first = 0n;
+    const max = (1n << BigInt(bits)) - 1n;
+    for (const item of mergeIntervals(items).filter((i) => i.bits === bits)) {
+      if (item.first > first)
+        result.push({ bits, first, last: item.first - 1n });
+      first = item.last + 1n;
+    }
+    if (first <= max) result.push({ bits, first, last: max });
+  }
+  return result;
+}
+const localNetworks = [
+  "0.0.0.0/32",
+  "10.0.0.0/8",
+  "100.64.0.0/10",
+  "127.0.0.0/8",
+  "169.254.0.0/16",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "224.0.0.0/4",
+  "255.255.255.255/32",
+  "::/128",
+  "::1/128",
+  "fc00::/7",
+  "fe80::/10",
+  "ff00::/8",
+].map((cidr) => {
+  const [ip, prefix] = cidr.split("/"),
+    a = ipNumber(ip);
+  return {
+    bits: a.bits,
+    first: a.value,
+    last: a.value + (1n << BigInt(a.bits - Number(prefix))) - 1n,
+  };
+});
+function subtract(items, exceptions) {
+  let result = items;
+  for (const skip of exceptions) {
+    const next = [];
+    for (const item of result) {
+      if (
+        item.bits !== skip.bits ||
+        item.last < skip.first ||
+        item.first > skip.last
+      )
+        next.push(item);
+      else {
+        if (item.first < skip.first)
+          next.push({ ...item, last: skip.first - 1n });
+        if (item.last > skip.last)
+          next.push({ ...item, first: skip.last + 1n });
+      }
+    }
+    result = next;
+  }
+  return result;
+}
+function exclusiveRanges(
+  ranges,
+  { allowLocalNetwork = true, allowUnknown = false } = {},
+) {
+  let intervals = ranges.map(parseRange);
+  if (!allowUnknown) intervals = complement(intervals);
+  if (allowLocalNetwork) intervals = subtract(intervals, localNetworks);
+  return mergeIntervals(intervals).map((i) =>
+    i.first === i.last
+      ? ipText(i.first, i.bits)
+      : ipText(i.first, i.bits) + "-" + ipText(i.last, i.bits),
+  );
+}
 class Regions {
   constructor(
     directory,
@@ -103,7 +200,7 @@ class Regions {
       sourceUrl: "https://db-ip.com/db/lite.php",
     };
   }
-  async prepare(selected) {
+  async prepare(selected, options = {}) {
     selected = countryCodes(selected);
     const date = this.clock(),
       month = date.toISOString().slice(0, 7);
@@ -154,7 +251,8 @@ class Regions {
     let pending = null,
       total = 0,
       rows = 0,
-      matched = 0;
+      matched = 0,
+      selectedRows = 0;
     const source = createReadStream(filename),
       inflate = createGunzip();
     source.on("error", (error) => inflate.destroy(error));
@@ -200,7 +298,12 @@ class Regions {
         if (columns.length !== 3 || !/^([A-Z]{2})$/.test(columns[2]))
           throw new Error("The country dataset has an unsupported format.");
         rows++;
-        if (!set.has(columns[2])) {
+        if (set.has(columns[2])) selectedRows++;
+        const include =
+          options.exclusive && options.allowUnknown
+            ? !set.has(columns[2]) && columns[2] !== "ZZ"
+            : set.has(columns[2]);
+        if (!include) {
           flush();
           continue;
         }
@@ -222,15 +325,23 @@ class Regions {
       }
       flush();
       if (excessive) throw new Error("Country data exceeds the size limit.");
-      if (rows < 1 || !cidrs.length)
+      if (rows < 1 || !selectedRows || (!options.exclusive && !cidrs.length))
         throw new Error(
           "No address ranges were found for the selected countries.",
         );
+      const ranges = options.exclusive
+        ? exclusiveRanges(cidrs, options)
+        : cidrs;
+      if (ranges.length > 250000) {
+        const error = new Error("This selection exceeds 250,000 ranges.");
+        error.code = "REGION_LIMIT";
+        throw error;
+      }
       return {
         countries: selected,
         sourceMonth: month,
-        ranges: cidrs,
-        rangeCount: cidrs.length,
+        ranges,
+        rangeCount: ranges.length,
         sourceUrl: "https://db-ip.com/db/lite.php",
         matchedRows: matched,
       };
@@ -244,4 +355,11 @@ class Regions {
     }
   }
 }
-module.exports = { Regions, countries, countryCodes, ipNumber, rangeToCidrs };
+module.exports = {
+  Regions,
+  countries,
+  countryCodes,
+  ipNumber,
+  rangeToCidrs,
+  exclusiveRanges,
+};
