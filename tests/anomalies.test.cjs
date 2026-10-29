@@ -259,3 +259,135 @@ test("bad-quality or poorly covered windows cannot trigger a spike", () => {
     f.cleanup();
   }
 });
+
+test("browser destination churn creates one review group; repeated snapshots cannot inflate it", () => {
+  const f = fixture();
+  try {
+    f.warm();
+    for (let i = 1; i <= 80; i++) {
+      f.advance(2000);
+      f.ingest([
+        { ...f.flow, id: "new-" + i, remoteAddress: "203.0.113." + i },
+      ]);
+    }
+    let feed = f.store.anomalies.list();
+    assert.equal(feed.counts.open, 1);
+    assert.equal(f.store.anomalies.openCount(), 1);
+    assert.equal(feed.alerts[0].occurrences, 80);
+    assert.equal(feed.alerts[0].evidence.activity.recent.length, 20);
+    const original = feed.alerts[0].evidence.baseline.knownDestinations;
+    for (let i = 0; i < 5; i++) {
+      f.advance(2000);
+      f.ingest([{ ...f.flow, id: "new-80", remoteAddress: "203.0.113.80" }]);
+    }
+    feed = f.store.anomalies.list();
+    assert.equal(feed.alerts[0].occurrences, 80);
+    assert.equal(feed.alerts[0].evidence.baseline.knownDestinations, original);
+    assert.ok(
+      !JSON.stringify(
+        f.store.anomalies.explainPayload(feed.alerts[0].id),
+      ).includes("203.0.113."),
+    );
+    f.store.anomalies.dismissAll();
+    assert.equal(f.store.anomalies.openCount(), 0);
+    f.advance(2000);
+    f.ingest([{ ...f.flow, id: "new-80", remoteAddress: "203.0.113.80" }]);
+    assert.equal(f.store.anomalies.openCount(), 0);
+  } finally {
+    f.cleanup();
+  }
+});
+test("temporary remote ports stay profiled without producing service notices", () => {
+  const f = fixture();
+  try {
+    f.warm();
+    for (let i = 49152; i < 49252; i++) {
+      f.advance(2000);
+      f.ingest([{ ...f.flow, id: "port-" + i, remotePort: i }]);
+    }
+    assert.equal(
+      f.store.anomalies.list().alerts.filter((a) => a.type === "new_service")
+        .length,
+      0,
+    );
+    assert.equal(
+      f.store.q("SELECT COUNT(*) count FROM edges WHERE port>=49152").get()
+        .count,
+      100,
+    );
+    f.advance(2000);
+    f.ingest([{ ...f.flow, id: "service", remotePort: 8443 }]);
+    assert.equal(
+      f.store.anomalies.list().alerts.filter((a) => a.type === "new_service")
+        .length,
+      1,
+    );
+  } finally {
+    f.cleanup();
+  }
+});
+test("stale notices leave the open badge after 24 hours and retain reviewed history and baseline", () => {
+  const f = fixture();
+  try {
+    f.warm();
+    f.advance(2000);
+    f.ingest([{ ...f.flow, id: "new", remoteAddress: "1.1.1.1" }]);
+    assert.equal(f.store.anomalies.openCount(), 1);
+    f.advance(24 * 60 * 60000 + 1);
+    assert.equal(f.store.anomalies.openCount(), 0);
+    assert.equal(f.store.anomalies.list().alerts.length, 0);
+    assert.equal(
+      f.store.anomalies.list({ status: "archived" }).alerts.length,
+      1,
+    );
+    assert.ok(f.store.q("SELECT 1 FROM edges WHERE address='1.1.1.1'").get());
+  } finally {
+    f.cleanup();
+  }
+});
+test("old per-endpoint alerts collapse during migration without losing source records", () => {
+  const f = fixture();
+  try {
+    f.warm();
+    const appId = appIdentity(f.flow);
+    for (let i = 0; i < 6; i++)
+      f.store
+        .q(
+          "INSERT INTO alerts(id,dedupe_key,type,app_id,app_name,address,severity,observed_at,evidence_json) VALUES(?,?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          "legacy-" + i,
+          "legacy-key-" + i,
+          "new_destination",
+          appId,
+          "Browser",
+          "203.0.113." + i,
+          "notice",
+          f.now,
+          JSON.stringify({
+            baseline: { knownDestinations: 1 },
+            observed: { address: "203.0.113." + i },
+            note: "Fixture",
+          }),
+        );
+    f.store
+      .q("DELETE FROM detector_migrations WHERE name='grouped_changes_v1'")
+      .run();
+    f.store.anomalies.initialize();
+    assert.equal(f.store.anomalies.openCount(), 1);
+    assert.equal(f.store.anomalies.list().alerts[0].occurrences, 6);
+    assert.equal(
+      f.store
+        .q("SELECT COUNT(*) count FROM alerts WHERE id LIKE 'legacy-%'")
+        .get().count,
+      6,
+    );
+    f.store.anomalies.setStatus(
+      f.store.anomalies.list().alerts[0].id,
+      "dismissed",
+    );
+    assert.equal(f.store.anomalies.openCount(), 0);
+  } finally {
+    f.cleanup();
+  }
+});

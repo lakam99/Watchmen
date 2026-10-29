@@ -5,6 +5,12 @@ contextBridge.exposeInMainWorld("watchmen", {
     ipcRenderer.on("snapshot", fn);
     return () => ipcRenderer.removeListener("snapshot", fn);
   },
+  updatesStatus: () => ipcRenderer.invoke("updates-status"),
+  updatesCheck: () => ipcRenderer.invoke("updates-check"),
+  updatesDownload: () => ipcRenderer.invoke("updates-download"),
+  updatesConfigure: (input) => ipcRenderer.invoke("updates-configure", input),
+  updatesInstall: () => ipcRenderer.invoke("updates-install"),
+  updatesRelease: () => ipcRenderer.invoke("updates-release"),
   getStatus: () => ipcRenderer.invoke("status"),
   firewallStatus: (refresh = false) =>
     ipcRenderer.invoke("firewall-status", refresh),
@@ -23,6 +29,9 @@ contextBridge.exposeInMainWorld("watchmen", {
   exportSession: () => ipcRenderer.invoke("export"),
   openPath: (pid) => ipcRenderer.invoke("open-path", pid),
   relaunchElevated: () => ipcRenderer.invoke("elevate"),
+  viewSettings: () => ipcRenderer.invoke("view-settings"),
+  saveViewSettings: (input) => ipcRenderer.invoke("view-settings-save", input),
+  dismissAllChanges: () => ipcRenderer.invoke("alerts-dismiss-all"),
   preferences: () => ipcRenderer.invoke("preferences"),
   setTheme: (theme) => ipcRenderer.invoke("theme", theme),
   saveAI: (input) => ipcRenderer.invoke("ai-save", input),

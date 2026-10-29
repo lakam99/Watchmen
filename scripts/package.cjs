@@ -24,6 +24,8 @@
       /^\/tests/,
       /^\/test-results/,
       /^\/scripts/,
+      /^\/\.github/,
+      /^\/electron-builder\.config\.cjs$/,
       /^\/\.git/,
       /^\/\.watchmen/,
       /\.(?:etl|pcap|pcapng|cap)$/i,
@@ -33,6 +35,10 @@
     ],
   });
   for (const output of outputs) {
+    await fs.writeFile(
+      path.join(output, "resources", "app-update.yml"),
+      "provider: github\nowner: lakam99\nrepo: Watchmen\nupdaterCacheDirName: watchmen-updater\n",
+    );
     const recovery = (
       await fs.readFile("scripts/Unblock-Watchmen.ps1", "utf8")
     ).replaceAll("__WATCHMEN_VERSION__", version);

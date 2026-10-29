@@ -6,7 +6,7 @@ const { randomUUID } = require("node:crypto");
 (async () => {
   await fs.mkdir("test-results", { recursive: true });
   const workingDir = await fs.mkdtemp(
-    path.join(process.cwd(), "test-results", "secure-settings-"),
+    path.join(require("node:os").tmpdir(), "watchmen-secure-settings-"),
   );
   const token = "synthetic-ui-test-" + randomUUID();
   const env = { ...process.env, WATCHMEN_WORKSPACE_DIR: workingDir };
@@ -23,10 +23,16 @@ const { randomUUID } = require("node:crypto");
               "Watchmen-win32-x64",
               "Watchmen.exe",
             ),
-            args: [],
+            args: ["--user-data-dir=" + path.join(workingDir, "chromium")],
           }
-        : { args: [process.cwd()] }),
+        : {
+            args: [
+              process.cwd(),
+              "--user-data-dir=" + path.join(workingDir, "chromium"),
+            ],
+          }),
       env,
+      timeout: 60000,
     });
   let app = await launch();
   let captured,
@@ -80,14 +86,26 @@ const { randomUUID } = require("node:crypto");
     const tokenPath = path.join(workingDir, ".watchmen", "ai-token.bin");
     const cipher = await fs.readFile(tokenPath);
     assert.ok(!cipher.includes(Buffer.from(token)));
-    assert.ok(
-      !(
-        await fs.readFile(
-          path.join(workingDir, ".watchmen", "settings.json"),
-          "utf8",
-        )
-      ).includes(token),
-    );
+    const settingsJSON = await app.evaluate(({ app }, workingDir) => {
+      const require = process
+        .getBuiltinModule("module")
+        .createRequire(app.getAppPath() + "/electron/main.cjs");
+      const db = new (require("node:sqlite").DatabaseSync)(
+        workingDir + "/.watchmen/traffic.sqlite",
+        { readOnly: true },
+      );
+      try {
+        return db
+          .prepare(
+            "SELECT value_json FROM app_settings WHERE key='preferences'",
+          )
+          .get().value_json;
+      } finally {
+        db.close();
+      }
+    }, workingDir);
+    assert.ok(!settingsJSON.includes(token));
+    assert.equal(JSON.parse(settingsJSON).ai.model, "openai/test-model");
     await page.screenshot({ path: "test-results/secure-ai-settings-dark.png" });
     await page.getByRole("button", { name: "Back to my network" }).click();
     await app.close();

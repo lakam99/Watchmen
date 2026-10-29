@@ -24,7 +24,12 @@ sealed class NetworkFilters : IDisposable
         var session = new Session { transactionWait = 15000 };
         Check(FwpmEngineOpen0(null, 10, IntPtr.Zero, ref session, out engine));
     }
-    static void Check(uint code) { if (code != 0) throw new InvalidOperationException($"Windows filtering failed (0x{code:X8})."); }
+    static void Check(uint code) {
+        if(code==0)return;
+        if(code==1450)throw new InvalidOperationException("Windows does not have enough system resources to complete this filtering operation (0x000005AA). Large country selections create many filters. This change is not confirmed active; refresh rules before trying a smaller selection.");
+        if(code==0x80320012)throw new InvalidOperationException("Windows could not acquire its filtering transaction lock (0x80320012). Wait for other policy changes to finish, then refresh rules before retrying.");
+        throw new InvalidOperationException($"Windows filtering failed (0x{code:X8}).");
+    }
     public void Dispose() { FwpmEngineClose0(engine); }
 
     Guid RuleKey(string id, int index) => new(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes("Watchmen.NetworkRules.v1/" + (testScope ? "test/" : "") + id + "/" + index)).AsSpan(0, 16));

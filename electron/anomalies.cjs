@@ -22,6 +22,63 @@ class Anomalies {
  CREATE INDEX IF NOT EXISTS alerts_feed ON alerts(status,observed_at);
  CREATE INDEX IF NOT EXISTS rates_age ON rate_windows(minute);
  `);
+    const columns = new Set(
+      this.store.db
+        .prepare("PRAGMA table_info(alerts)")
+        .all()
+        .map((row) => row.name),
+    );
+    if (!columns.has("last_seen"))
+      this.store.db.exec(
+        "ALTER TABLE alerts ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0;",
+      );
+    if (!columns.has("occurrences"))
+      this.store.db.exec(
+        "ALTER TABLE alerts ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1;",
+      );
+    this.store.db.exec(
+      "CREATE TABLE IF NOT EXISTS alert_events(dedupe_key TEXT PRIMARY KEY,alert_id TEXT NOT NULL,observed_at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS detector_migrations(name TEXT PRIMARY KEY); CREATE INDEX IF NOT EXISTS alerts_app_group ON alerts(app_id,type,status,last_seen);",
+    );
+    if (
+      !this.q(
+        "SELECT 1 FROM detector_migrations WHERE name='grouped_changes_v1'",
+      ).get()
+    ) {
+      this.store.db.exec(
+        "UPDATE alerts SET last_seen=observed_at WHERE last_seen=0; INSERT OR IGNORE INTO alert_events SELECT dedupe_key,id,observed_at FROM alerts;",
+      );
+      this.store.db.exec(
+        "UPDATE alerts SET status='archived' WHERE status='open' AND type='new_service' AND json_extract(evidence_json,'$.observed.port')>=49152;",
+      );
+      const groups = this.q(
+        "SELECT app_id,type,COALESCE(json_extract(evidence_json,'$.baseline.direction'),'') dimension FROM alerts WHERE status='open' GROUP BY app_id,type,dimension HAVING COUNT(*)>1",
+      ).all();
+      for (const group of groups) {
+        const rows = this.q(
+          "SELECT * FROM alerts WHERE app_id=? AND type=? AND status='open' AND COALESCE(json_extract(evidence_json,'$.baseline.direction'),'')=? ORDER BY observed_at,id",
+        ).all(group.app_id, group.type, group.dimension);
+        const first = rows[0],
+          evidence = JSON.parse(first.evidence_json);
+        const count = rows.reduce((sum, row) => sum + row.occurrences, 0),
+          last = rows.reduce((value, row) => Math.max(value, row.last_seen), 0);
+        evidence.activity = {
+          occurrences: count,
+          lastObservedAt: last,
+          recent: rows.slice(-20).map((row) => ({
+            ...JSON.parse(row.evidence_json).observed,
+            observedAt: row.last_seen,
+          })),
+        };
+        this.q(
+          "UPDATE alerts SET occurrences=?,last_seen=?,evidence_json=? WHERE id=?",
+        ).run(count, last, JSON.stringify(evidence), first.id);
+        for (const row of rows.slice(1))
+          this.q("UPDATE alerts SET status='archived' WHERE id=?").run(row.id);
+      }
+      this.q(
+        "INSERT INTO detector_migrations VALUES('grouped_changes_v1')",
+      ).run();
+    }
     this.q("INSERT OR IGNORE INTO detector_meta VALUES(1,?)").run(
       this.store.clock(),
     );
@@ -44,20 +101,84 @@ class Anomalies {
     timestamp,
     severity = "notice",
   ) {
-    this.q(
-      "INSERT OR IGNORE INTO alerts(id,dedupe_key,type,app_id,app_name,address,severity,observed_at,evidence_json) VALUES(?,?,?,?,?,?,?,?,?)",
-    ).run(
-      randomUUID(),
-      key,
-      type,
-      appId,
-      appName,
-      address,
-      severity,
-      timestamp,
-      JSON.stringify({ version: 1, ...evidence }),
-    );
+    this.store.db.exec("SAVEPOINT add_change;");
+    try {
+      const inserted = this.q(
+        "INSERT OR IGNORE INTO alert_events VALUES(?,'',?)",
+      ).run(key, timestamp);
+      if (!inserted.changes) {
+        this.store.db.exec("RELEASE add_change;");
+        return;
+      }
+      const old = this.q("SELECT id FROM alerts WHERE dedupe_key=?").get(key);
+      if (old) {
+        this.q("UPDATE alert_events SET alert_id=? WHERE dedupe_key=?").run(
+          old.id,
+          key,
+        );
+        this.store.db.exec("RELEASE add_change;");
+        return;
+      }
+      const dimension = evidence.baseline.direction || "";
+      const existing = this.q(
+        "SELECT * FROM alerts WHERE app_id=? AND type=? AND status='open' AND COALESCE(NULLIF(last_seen,0),observed_at)>=? AND COALESCE(json_extract(evidence_json,'$.baseline.direction'),'')=? ORDER BY observed_at,id LIMIT 1",
+      ).get(appId, type, timestamp - DAY, dimension);
+      let id;
+      if (existing) {
+        id = existing.id;
+        const saved = JSON.parse(existing.evidence_json),
+          count = existing.occurrences + 1;
+        const recent = [
+          ...(saved.activity?.recent || [
+            { ...saved.observed, observedAt: existing.observed_at },
+          ]),
+          { ...evidence.observed, observedAt: timestamp },
+        ].slice(-20);
+        saved.activity = {
+          occurrences: count,
+          lastObservedAt: timestamp,
+          recent,
+        };
+        this.q(
+          "UPDATE alerts SET occurrences=?,last_seen=MAX(last_seen,?),evidence_json=? WHERE id=?",
+        ).run(count, timestamp, JSON.stringify(saved), id);
+      } else {
+        id = randomUUID();
+        const initial = {
+          version: 1,
+          ...evidence,
+          activity: {
+            occurrences: 1,
+            lastObservedAt: timestamp,
+            recent: [{ ...evidence.observed, observedAt: timestamp }],
+          },
+        };
+        this.q(
+          "INSERT INTO alerts(id,dedupe_key,type,app_id,app_name,address,severity,observed_at,evidence_json,last_seen,occurrences) VALUES(?,?,?,?,?,?,?,?,?,?,1)",
+        ).run(
+          id,
+          key,
+          type,
+          appId,
+          appName,
+          address,
+          severity,
+          timestamp,
+          JSON.stringify(initial),
+          timestamp,
+        );
+      }
+      this.q("UPDATE alert_events SET alert_id=? WHERE dedupe_key=?").run(
+        id,
+        key,
+      );
+      this.store.db.exec("RELEASE add_change;");
+    } catch (error) {
+      this.store.db.exec("ROLLBACK TO add_change; RELEASE add_change;");
+      throw error;
+    }
   }
+
   observe({ apps, edges, timestamp, measured, elapsed, quality = true }) {
     const maturity = new Map();
     for (const app of apps.values())
@@ -102,6 +223,7 @@ class Anomalies {
           timestamp,
         );
       if (
+        edge.port <= 49151 &&
         !this.q(
           "SELECT 1 FROM edges WHERE app_id=? AND protocol=? AND port=? LIMIT 1",
         ).get(edge.appId, edge.protocol, edge.port)
@@ -256,7 +378,7 @@ class Anomalies {
   }
   list({ status = "open", type = "all", search = "" } = {}) {
     if (
-      !["open", "dismissed", "all"].includes(status) ||
+      !["open", "dismissed", "archived", "all"].includes(status) ||
       ![
         "all",
         "new_destination",
@@ -266,9 +388,17 @@ class Anomalies {
       ].includes(type)
     )
       throw new Error("Choose valid alert filters.");
+    const cutoff = this.store.clock() - DAY;
     const rows = this.q(
-      "SELECT * FROM alerts WHERE (?='all' OR status=?) AND (?='all' OR type=?) AND instr(lower(app_name||' '||address),?)>0 ORDER BY observed_at DESC LIMIT 200",
+      `WITH source AS (
+      SELECT *,COALESCE(NULLIF(last_seen,0),observed_at) effective_seen,
+      CASE WHEN status='open' AND (COALESCE(NULLIF(last_seen,0),observed_at)<? OR (type='new_service' AND json_extract(evidence_json,'$.observed.port')>=49152)) THEN 'archived' ELSE status END effective_status,
+      CASE WHEN status='open' AND COALESCE(NULLIF(last_seen,0),observed_at)>=? AND (type!='new_service' OR json_extract(evidence_json,'$.observed.port')<49152) THEN app_id||':'||type||':'||COALESCE(json_extract(evidence_json,'$.baseline.direction'),'') ELSE id END visible_group FROM alerts
+    ), grouped AS (SELECT *,ROW_NUMBER() OVER(PARTITION BY visible_group ORDER BY observed_at,id) rank,SUM(occurrences) OVER(PARTITION BY visible_group) grouped_count,MAX(effective_seen) OVER(PARTITION BY visible_group) grouped_seen FROM source)
+    SELECT * FROM grouped WHERE rank=1 AND (?='all' OR effective_status=?) AND (?='all' OR type=?) AND instr(lower(app_name||' '||address),?)>0 ORDER BY grouped_seen DESC LIMIT 200`,
     ).all(
+      cutoff,
+      cutoff,
       status,
       status,
       type,
@@ -276,15 +406,29 @@ class Anomalies {
       String(search).slice(0, 200).toLowerCase(),
     );
     const counts = this.q(
-      "SELECT COUNT(*) total,SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) open,SUM(CASE WHEN type='traffic_spike' AND status='open' THEN 1 ELSE 0 END) spikes FROM alerts",
-    ).get();
+      `SELECT COUNT(*) open,SUM(CASE WHEN type='traffic_spike' THEN 1 ELSE 0 END) spikes FROM (SELECT app_id,type,COALESCE(json_extract(evidence_json,'$.baseline.direction'),'') dimension FROM alerts WHERE status='open' AND COALESCE(NULLIF(last_seen,0),observed_at)>=? AND (type!='new_service' OR json_extract(evidence_json,'$.observed.port')<49152) GROUP BY app_id,type,dimension)`,
+    ).get(cutoff);
+    const total = this.q("SELECT COUNT(*) total FROM alerts").get().total;
     const learned = this.q(
       "SELECT COUNT(*) count FROM (SELECT app_id FROM app_daily GROUP BY app_id HAVING SUM(observed_ms)>=?)",
     ).get(LEARN_MS).count;
     return {
-      alerts: rows.map((row) => this.row(row)),
+      alerts: rows.map((row) =>
+        this.row({
+          ...row,
+          status: row.effective_status,
+          occurrences: row.grouped_count,
+          last_seen: row.grouped_seen,
+          visible_group: undefined,
+          effective_seen: undefined,
+          effective_status: undefined,
+          rank: undefined,
+          grouped_count: undefined,
+          grouped_seen: undefined,
+        }),
+      ),
       counts: {
-        total: counts.total,
+        total,
         open: counts.open || 0,
         spikes: counts.spikes || 0,
       },
@@ -293,28 +437,53 @@ class Anomalies {
         minimumObservedMs: LEARN_MS,
         minimumMeasuredMinutes: 5,
       },
+      reviewWindowHours: 24,
       updatedAt: this.store.clock(),
     };
   }
   openCount() {
-    return this.q("SELECT COUNT(*) count FROM alerts WHERE status='open'").get()
-      .count;
+    return this.q(
+      "SELECT COUNT(*) count FROM (SELECT app_id,type,COALESCE(json_extract(evidence_json,'$.baseline.direction'),'') dimension FROM alerts WHERE status='open' AND COALESCE(NULLIF(last_seen,0),observed_at)>=? AND (type!='new_service' OR json_extract(evidence_json,'$.observed.port')<49152) GROUP BY app_id,type,dimension)",
+    ).get(this.store.clock() - DAY).count;
   }
   setStatus(id, status) {
     if (!["open", "dismissed"].includes(status))
       throw new Error("Invalid alert status.");
-    const changed = this.q("UPDATE alerts SET status=? WHERE id=?").run(
-      status,
-      String(id),
-    );
-    if (!changed.changes) throw new Error("This alert is no longer available.");
+    const row = this.q("SELECT * FROM alerts WHERE id=?").get(String(id));
+    if (!row) throw new Error("This alert is no longer available.");
+    const dimension = JSON.parse(row.evidence_json).baseline.direction || "";
+    if (status === "dismissed")
+      this.q(
+        "UPDATE alerts SET status='dismissed' WHERE (app_id=? AND type=? AND status='open' AND COALESCE(json_extract(evidence_json,'$.baseline.direction'),'')=?) OR id=?",
+      ).run(row.app_id, row.type, dimension, row.id);
+    else {
+      const current = this.q(
+        "SELECT id FROM alerts WHERE app_id=? AND type=? AND status='open' AND COALESCE(NULLIF(last_seen,0),observed_at)>=? AND COALESCE(json_extract(evidence_json,'$.baseline.direction'),'')=? AND id!=? LIMIT 1",
+      ).get(row.app_id, row.type, this.store.clock() - DAY, dimension, row.id);
+      if (current)
+        throw new Error(
+          "This app already has an open change of this type. Review that group first.",
+        );
+      this.q("UPDATE alerts SET status='open',last_seen=? WHERE id=?").run(
+        this.store.clock(),
+        row.id,
+      );
+    }
     return true;
+  }
+  dismissAll() {
+    return this.q(
+      "UPDATE alerts SET status='dismissed' WHERE status='open'",
+    ).run().changes;
   }
   explainPayload(id, includeIPs = false) {
     const row = this.q("SELECT * FROM alerts WHERE id=?").get(String(id));
     if (!row) throw new Error("Select a saved alert.");
     const evidence = JSON.parse(row.evidence_json);
-    if (!includeIPs) delete evidence.observed?.address;
+    if (!includeIPs) {
+      delete evidence.observed?.address;
+      for (const item of evidence.activity?.recent || []) delete item.address;
+    }
     return {
       id: row.id,
       type: row.type,

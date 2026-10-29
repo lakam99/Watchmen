@@ -686,3 +686,39 @@ html[data-theme="dark"] .inspector h3 {
     font-size: 9px;
   }
 }
+
+.updates-setting {
+  border-top: 1px solid var(--border);
+  padding: 18px 0;
+  display: grid;
+  gap: 10px;
+}
+.updates-setting h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.updates-setting h3 small {
+  margin-left: auto;
+  font-weight: 400;
+}
+.updates-setting p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.updates-setting progress {
+  width: 100%;
+  accent-color: var(--purple);
+}
+.updates-setting .checkbox-label {
+  font-size: 12px;
+}
+.updates-setting .update-restart-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+.update-banner small {
+  display: block;
+}

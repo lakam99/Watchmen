@@ -25,6 +25,11 @@ const { Insights } = require("./insights.cjs");
 const { TrafficStore } = require("./traffic-store.cjs");
 const { Packets } = require("./packets.cjs");
 const { Firewall } = require("./firewall.cjs");
+const { Updates, releaseUrl } = require("./updates.cjs");
+const { resolveWorkspace, rememberWorkspace } = require("./workspace.cjs");
+const { SettingsStore } = require("./settings-store.cjs");
+let localSettings;
+let updates;
 let firewall;
 let packets;
 let preferences,
@@ -213,7 +218,33 @@ const safeHandle = (name, handler) =>
       };
     }
   });
+safeHandle("updates-status", () => updates.status());
+safeHandle("updates-check", () => updates.check());
+safeHandle("updates-download", () => updates.download());
+safeHandle("updates-configure", (input) => updates.configure(input));
+safeHandle("updates-install", async () => {
+  await require("./update-install-guard.cjs").assertNoOtherInstances([
+    process.pid,
+    ...app.getAppMetrics().map((metric) => metric.pid),
+  ]);
+  try {
+    await rememberWorkspace(
+      path.dirname(preferences.dir),
+      app.getPath("userData"),
+    );
+  } catch {
+    throw new Error(
+      "The traffic data directory could not be preserved for the updated app. Check its permissions before retrying; installation has not started.",
+    );
+  }
+  return updates.install();
+});
+safeHandle("updates-release", () => shell.openExternal(releaseUrl));
 safeHandle("preferences", () => preferences.status());
+safeHandle("view-settings", () => localSettings.get("monitor"));
+safeHandle("view-settings-save", (input) =>
+  localSettings.patch("monitor", input),
+);
 safeHandle("firewall-status", (refresh) =>
   refresh === true ? firewall.refresh() : firewall.status(),
 );
@@ -299,7 +330,15 @@ safeHandle("alerts-list", (options) => {
 });
 safeHandle("alert-status", (id, status) => {
   if (!trafficStore) throw new Error("Traffic history is unavailable.");
-  return trafficStore.anomalies.setStatus(id, status);
+  const result = trafficStore.anomalies.setStatus(id, status);
+  send();
+  return result;
+});
+safeHandle("alerts-dismiss-all", () => {
+  if (!trafficStore) throw new Error("Traffic history is unavailable.");
+  const count = trafficStore.anomalies.dismissAll();
+  send();
+  return count;
 });
 safeHandle("alert-preview", (id, includeIPs) => {
   if (!trafficStore) throw new Error("Traffic history is unavailable.");
@@ -326,8 +365,9 @@ safeHandle("ai-cancel", () => {
   insights.cancel();
   return true;
 });
-ipcMain.handle("locations", (event, value) => {
+ipcMain.handle("locations", async (event, value) => {
   assertSender(event);
+  await localSettings.patch("monitor", { locationsEnabled: value === true });
   locationsEnabled = value === true;
   if (locationsEnabled && trafficStore) {
     try {
@@ -405,26 +445,19 @@ ipcMain.handle("elevate", async (event) => {
   });
 });
 app.whenReady().then(async () => {
-  let workspace = app.isPackaged ? path.dirname(process.execPath) : root;
-  if (app.isPackaged) {
-    let candidate = workspace;
-    for (let depth = 0; depth < 5; depth++) {
-      const found = await fs
-        .readFile(path.join(candidate, "package.json"), "utf8")
-        .then((contents) => JSON.parse(contents).name === "watchmen")
-        .catch(() => false);
-      if (found) {
-        workspace = candidate;
-        break;
-      }
-      const parent = path.dirname(candidate);
-      if (parent === candidate) break;
-      candidate = parent;
-    }
-  }
-  if (process.env.WATCHMEN_WORKSPACE_DIR)
-    workspace = path.resolve(process.env.WATCHMEN_WORKSPACE_DIR);
-  preferences = new Preferences(path.join(workspace, ".watchmen"), safeStorage);
+  const workspace = await resolveWorkspace({
+    packaged: app.isPackaged,
+    executable: process.execPath,
+    root,
+    userData: app.getPath("userData"),
+    override: process.env.WATCHMEN_WORKSPACE_DIR,
+  });
+  localSettings = new SettingsStore(path.join(workspace, ".watchmen"));
+  preferences = new Preferences(
+    path.join(workspace, ".watchmen"),
+    safeStorage,
+    localSettings,
+  );
   firewall = new Firewall(path.join(workspace, ".watchmen"), {
     agentPath: collectorPath(),
     snapshot: () => latest,
@@ -453,13 +486,31 @@ app.whenReady().then(async () => {
     }
   }
   await preferences.init();
+  locationsEnabled = localSettings.get("monitor").locationsEnabled;
+  if (locationsEnabled && trafficStore)
+    geo = new Map(Object.entries(trafficStore.cachedLocations()));
+  const { autoUpdater } = require("electron-updater");
+  updates = new Updates(path.join(workspace, ".watchmen"), {
+    adapter: autoUpdater,
+    settings: localSettings,
+    version: app.getVersion(),
+    supported: app.isPackaged && process.platform === "win32",
+    blocked: () =>
+      firewall?.busy
+        ? "Wait for the current network-rule task to finish before restarting."
+        : packets?.status()?.active || packets?.status()?.processing
+          ? "Stop the packet capture before restarting."
+          : null,
+  });
+  await updates.init();
   nativeTheme.themeSource = preferences.value.theme;
   insights = new Insights(preferences, (url, options) =>
     net.fetch(url, options),
   );
+  const savedWindow = localSettings.get("window");
   win = new BrowserWindow({
-    width: 1460,
-    height: 960,
+    width: savedWindow.width,
+    height: savedWindow.height,
     minWidth: 1000,
     minHeight: 720,
     title: "Watchmen",
@@ -472,6 +523,28 @@ app.whenReady().then(async () => {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  if (savedWindow.maximized) win.maximize();
+  let boundsTimer;
+  const saveBounds = () => {
+    if (win?.isDestroyed()) return;
+    const b = win.getNormalBounds();
+    localSettings
+      .patch("window", {
+        width: Math.max(1000, Math.min(8192, b.width)),
+        height: Math.max(720, Math.min(8192, b.height)),
+        maximized: win.isMaximized(),
+      })
+      .catch(() => {});
+  };
+  for (const event of ["resize", "maximize", "unmaximize"])
+    win.on(event, () => {
+      clearTimeout(boundsTimer);
+      boundsTimer = setTimeout(saveBounds, 300);
+    });
+  win.on("close", () => {
+    clearTimeout(boundsTimer);
+    saveBounds();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -492,6 +565,7 @@ async function finishQuit() {
     await packets?.shutdown();
   } catch {}
   closeHistory();
+  localSettings?.close();
   if (
     path.dirname(runtimeCache) === path.resolve(app.getPath("temp")) &&
     path.basename(runtimeCache).startsWith("watchmen-cache-")
@@ -511,6 +585,7 @@ function closeHistory() {
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
   insights?.cancel();
+  updates?.dispose();
   if (shuttingDown) return;
   if (!agent || agent.exitCode !== null) {
     event.preventDefault();

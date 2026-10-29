@@ -1,0 +1,64 @@
+name: Windows release
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: watchmen-windows-releases
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Select release version
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/prepare-release.cjs
+      - if: steps.prepare.outputs.skip != 'true'
+        run: npm ci
+      - if: steps.prepare.outputs.skip != 'true'
+        run: npm test
+      - if: steps.prepare.outputs.skip != 'true'
+        run: npm run release:build
+      - name: Publish tested release
+        if: steps.prepare.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout --detach
+          git add package.json package-lock.json
+          git diff --cached --quiet
+          if($LASTEXITCODE -ne 0){git commit -m "chore: release $env:RELEASE_TAG";if($LASTEXITCODE -ne 0){throw 'Version commit failed.'}}
+          git show-ref --verify --quiet "refs/tags/$env:RELEASE_TAG"
+          if($LASTEXITCODE -ne 0){git tag $env:RELEASE_TAG;git push origin "refs/tags/$env:RELEASE_TAG";if($LASTEXITCODE -ne 0){throw 'Release tag push failed.'}}
+          $notes=Join-Path $env:RUNNER_TEMP 'watchmen-release-notes.md'
+          "<!-- watchmen-source:$env:GITHUB_SHA -->`n`n$(Get-Content -Raw RELEASE_NOTES.md)"|Set-Content -Encoding utf8NoBOM -LiteralPath $notes
+          $assets=@("release/$env:RELEASE_VERSION/Watchmen-$env:RELEASE_VERSION-win32-x64.zip","release/$env:RELEASE_VERSION/installer/Watchmen-Setup-$env:RELEASE_VERSION-x64.exe","release/$env:RELEASE_VERSION/installer/latest.yml","release/$env:RELEASE_VERSION/SHA256SUMS.txt")
+          $draft=gh release view $env:RELEASE_TAG --json isDraft --jq .isDraft
+          $exists=$LASTEXITCODE -eq 0
+          if($exists -and $draft -eq "false"){Write-Host "Release already published; existing assets are unchanged.";exit 0}
+          if($exists){gh release upload $env:RELEASE_TAG @assets --clobber}else{gh release create $env:RELEASE_TAG @assets --verify-tag --draft --generate-notes --notes-file $notes --title "Watchmen $env:RELEASE_VERSION"}
+          if($LASTEXITCODE -ne 0){throw 'Release asset upload failed.'}
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if($LASTEXITCODE -ne 0){throw 'Release publication failed.'}

@@ -4,7 +4,7 @@ A local-first Windows desktop network monitor, built with Electron, React, and a
 
 ## Run the desktop app
 
-Open `release/0.6.0/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
+Open `release/0.8.0/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
 
 The standard mode reads live TCP connections, UDP listening sockets, process ownership, and incoming/outgoing network-interface rates. Use **Enable detailed capture** to relaunch with Windows administrator approval and enable per-process TCP/UDP byte counts. Canceling UAC leaves standard monitoring available.
 
@@ -18,6 +18,18 @@ The standard mode reads live TCP connections, UDP listening sockets, process own
 - Choose System, Light, or Dark appearance in Settings. Your preference persists across restarts.
 - Watch incoming/outgoing rates over 60 seconds or five minutes, choosing a specific interface when needed.
 - Pause the displayed view while collection continues, then resume. Export the latest collector snapshot and retained flow totals as JSON.
+
+## App updates from GitHub Releases
+
+Version 0.7 adds **Settings & privacy > App updates**. Packaged Windows builds check the public `lakam99/Watchmen` GitHub repository ten seconds after launch and every six hours. New stable releases download in the background by default. Both automatic checking and background downloading can be turned off; **Check for updates** and **Download update** remain available. No traffic data or OpenRouter token is sent to GitHub.
+
+The Windows updater uses `electron-updater` with the release's `latest.yml` metadata and SHA-512 verification. It ignores prereleases and downgrades. A verified download shows **Install & restart** in Settings and the main monitor. It never installs merely because you close the app. Rule changes and packet capture/import must finish first. Other Watchmen windows must be closed before installation; the updater leaves their processes running. The Windows installer runs per user and creates normal app shortcuts.
+
+The data directory is remembered in `watchmen-workspace.json` inside the stable Electron user profile before installation. Updated/installed copies reopen that directory, including `.watchmen/traffic.sqlite`, settings and encrypted credentials. The Chromium profile owning the DPAPI encryption key stays in place. If that pointer cannot be saved, installation is blocked. For an existing portable installation, open the new portable 0.7 build from the existing working directory once before using in-app installation. A first-time installation with no prior workspace uses its own application folder.
+
+The app reports that no update is available until a stable Windows release includes both its installer and `latest.yml` metadata. Version 0.6 itself has no updater; use the 0.7 build for this first upgrade.
+
+For maintainers, `npm run release:build` produces the portable app/ZIP, `Watchmen-Setup-<version>-x64.exe`, `latest.yml` and `SHA256SUMS.txt` under `release/<version>`. The workflow in `.github/workflows/release.yml` runs for pushes to `master`/`main`, explicit stable version tags, and manual dispatch. It runs tests, builds and audits the packages, uploads a draft, then publishes only after all assets are present. A new package version is honored; subsequent pushed changes automatically use the next unused stable patch. If a version bump is needed, a version-only commit is created on the release tag, leaving the development branch intact. Already published releases are preserved. Update `RELEASE_NOTES.md` alongside each user-facing change. Authenticode signing is not configured; the current release integrity check is the SHA-512 digest delivered by the configured GitHub feed.
 
 ## Block and unblock traffic
 
@@ -41,7 +53,7 @@ Use **Unblock**, **Block again**, **Turn off app isolation**, or **Unblock all W
 For recovery without the app, double-click **`Unblock-Watchmen.cmd`** in the release folder and accept Windows administrator elevation. Keep its `.ps1` companion and the complete app folder together. From an administrator PowerShell window, the native recovery command is:
 
 ```powershell
-& '.\resources\app.asar.unpacked\native\bin\0.6.0\Watchmen.Agent.exe' --unblock-watchmen
+& '.\resources\app.asar.unpacked\native\bin\0.8.0\Watchmen.Agent.exe' --unblock-watchmen
 ```
 
 Recovery removes filters only from Watchmen's own Windows filtering sublayer and can work even if saved rule metadata is missing or damaged. Reinstalling this build also gives access to the machine-wide rules and recovery control.
@@ -64,6 +76,8 @@ Version 0.4 upgrades existing profiles to schema 2 while retaining their history
 
 ## Changes against your saved profile
 
+Changes are grouped by application and change type, with upload and download spikes kept separate. The badge counts unresolved groups with activity in the last 24 hours, rather than every observed IP or lifetime history. New observations update a group and retain its original baseline; the detail shows up to 20 recent examples. Repeat events are deduplicated. Old notices remain in Archived/history, and **Mark all reviewed** clears the current queue while keeping learned profiles and evidence. Temporary remote ports (49152–65535) stay in the traffic profile and do not create new-service notices. Existing per-IP notices are consolidated on first launch without deleting their source records.
+
 Open **Changes** to see new destination IPs, unfamiliar remote protocol/port combinations, new countries, and sustained upload/download spikes. Detection runs locally against the shared SQLite history; alert evidence preserves what was known before the change. Each app needs two minutes of recorded presence before destination/service notices start. Existing history contributes to that baseline. Location notices require previously learned countries and a newly observed endpoint with an opt-in or cached location result. A changed country can reflect a CDN, VPN, proxy, or approximate lookup.
 
 Spike detection needs working detailed capture and five earlier completed measured minutes within the previous 24 hours. Each eligible minute needs at least 30 seconds of measured coverage. A completed minute is flagged when its measured rate exceeds the greater of 128 KiB/s, five times the baseline median, and the median plus six median absolute deviations, with at least 4 MiB transferred. Lost-event and counter-reset windows are excluded. Notices are limited to one per app/direction per ten-minute bucket; measured windows expire after seven days. This detects sustained changes and can miss brief bursts. Ordinary mode can detect new endpoints/services but cannot measure per-app spikes.
@@ -82,9 +96,9 @@ Live packet data stays in memory until another capture/import or app exit and is
 
 ## AI insights and token storage
 
-In **Settings & privacy → AI insights**, choose OpenRouter (the default), OpenAI, or an OpenAI-compatible HTTPS service. Enter the provider's API token and model ID, then select **Save AI settings**. A saved token is never returned to the renderer; the password field clears after saving. Changing providers or endpoints requires a new token. **Remove token** deletes the saved encrypted credential.
+In **Settings & privacy → AI insights**, choose OpenRouter (the default), OpenAI, or an OpenAI-compatible HTTPS service. Enter the provider's API token and model ID, then select **Save AI settings**. Nonsecret settings are stored in the local traffic SQLite database. A saved token is never returned to the renderer; the password field clears after saving. Changing providers or endpoints requires a new token. **Remove token** deletes the saved encrypted credential.
 
-The token is encrypted using Electron's asynchronous `safeStorage` API backed by Windows DPAPI and stored at **`.watchmen/ai-token.bin` in this working directory**. Nonsecret appearance/provider preferences are in `.watchmen/settings.json`. The directory is ignored by Git and excluded from packaged builds. The settings screen displays the exact credential path. If Windows encryption is unavailable, token saving fails without writing a plaintext fallback. DPAPI protects stored data from other Windows users; software running as your own Windows account is inside the same trust boundary. See [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+The token is encrypted using Electron's asynchronous `safeStorage` API backed by Windows DPAPI and stored at **`.watchmen/ai-token.bin` in this working directory**. Nonsecret appearance/provider preferences, update preferences, monitor grouping/filter/search/adapter/chart choices, window size, and the IP lookup choice are stored in the `app_settings` table of `.watchmen/traffic.sqlite`. Existing `settings.json` and `update-settings.json` files are imported once and preserved as legacy backups; subsequent saves use SQLite. The directory is ignored by Git and excluded from packaged builds. The settings screen displays the exact credential path. If Windows encryption is unavailable, token saving fails without writing a plaintext fallback. DPAPI protects stored data from other Windows users; software running as your own Windows account is inside the same trust boundary. See [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
 
 For this repository's packaged build, the working directory is the repository root. A standalone copy falls back to its executable's folder; `WATCHMEN_WORKSPACE_DIR` can explicitly set a different workspace. Moving encrypted credentials to another Windows account or machine may require entering the token again.
 
@@ -94,7 +108,7 @@ OpenAI uses the [Responses API](https://developers.openai.com/api/docs/guides/mi
 
 ## IP location lookup
 
-Location lookup is **off on every launch**. In **Settings & privacy**, enable it to submit public destination IPs over HTTPS to [ipwho.is](https://ipwhois.io/documentation). Local/reserved addresses and packet contents are not submitted. Country, city, and network owner are approximate, especially with VPNs, proxies, CDNs, and anycast.
+Location lookup is **off until you opt in**. Your choice is stored locally and reused on later launches. In **Settings & privacy**, enable it to submit public destination IPs over HTTPS to [ipwho.is](https://ipwhois.io/documentation). Local/reserved addresses and packet contents are not submitted. Country, city, and network owner are approximate, especially with VPNs, proxies, CDNs, and anycast.
 
 Lookups run at roughly one request per second, stop on provider rate limits, and are capped at 1,000 per launch. The provider also imposes a shared daily limit. A network or service failure appears as “Lookup unavailable.” Disabling lookups stops new requests; an already-started request may complete. Successful lookups are cached locally for reuse, and are hidden from the live view while lookup is off. Historical profiles retain previously learned labels.
 
@@ -132,6 +146,7 @@ node scripts/features-smoke.cjs
 node scripts/profile-smoke.cjs
 node scripts/inspection-smoke.cjs
 npm run package
+npm run release:build
 node scripts/smoke.cjs --packaged
 node scripts/features-smoke.cjs --packaged
 node scripts/profile-smoke.cjs --packaged
@@ -144,3 +159,5 @@ The collector smoke test generates controlled loopback TCP/UDP traffic over IPv4
 Production UI uses a sandboxed renderer with context isolation and narrow IPC methods, no renderer Node access, denied navigation/popups/permissions, and a self-only content-security policy. Windows collection follows [Microsoft TraceEvent](https://github.com/microsoft/perfview) APIs; renderer isolation follows [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
 
 
+
+If a local development network requires Windows certificate trust, Node 22.21 supports `NODE_OPTIONS=--use-system-ca`. An existing Electron ZIP directory can be supplied through `WATCHMEN_ELECTRON_ZIP_DIR` when packaging. TLS verification stays enabled.

@@ -9,47 +9,8 @@ const defaults = {
     model: "openai/gpt-4.1-mini",
   },
 };
-function validateAI(input) {
-  if (
-    !input ||
-    !["openai", "openrouter", "compatible"].includes(input.provider)
-  )
-    throw new Error("Choose an AI provider.");
-  if (
-    typeof input.model !== "string" ||
-    !input.model.trim() ||
-    input.model.length > 160 ||
-    /[\r\n]/.test(input.model)
-  )
-    throw new Error("Enter a valid model ID.");
-  const fixed =
-    input.provider === "openai"
-      ? "https://api.openai.com/v1"
-      : input.provider === "openrouter"
-        ? "https://openrouter.ai/api/v1"
-        : input.baseUrl;
-  let url;
-  try {
-    url = new URL(fixed);
-  } catch {
-    throw new Error("Enter a valid HTTPS API base URL.");
-  }
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    throw new Error(
-      "The API URL must use HTTPS and contain no credentials, query, or fragment.",
-    );
-  return {
-    provider: input.provider,
-    baseUrl: url.href.replace(/\/$/, ""),
-    model: input.model.trim(),
-  };
-}
+const { validateAI } = require("./ai-config.cjs");
+const { SettingsStore } = require("./settings-store.cjs");
 async function atomicWrite(filename, contents) {
   await fs.mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
   const temp = filename + "." + randomUUID() + ".tmp";
@@ -61,28 +22,24 @@ async function atomicWrite(filename, contents) {
   }
 }
 class Preferences {
-  constructor(dir, safeStorage) {
+  constructor(dir, safeStorage, settings = null) {
     this.dir = dir;
     this.safe = safeStorage;
-    this.settingsPath = path.join(dir, "settings.json");
+    this.settings = settings || new SettingsStore(dir);
+    this.ownsSettings = !settings;
+    this.settingsPath = this.settings.path;
     this.tokenPath = path.join(dir, "ai-token.bin");
-    this.value = structuredClone(defaults);
     this.error = null;
   }
+  get value() {
+    return this.settings.get("preferences", defaults);
+  }
   async init() {
-    try {
-      const v = JSON.parse(await fs.readFile(this.settingsPath, "utf8"));
-      this.value = {
-        theme: ["system", "dark", "light"].includes(v.theme)
-          ? v.theme
-          : "system",
-        ai: validateAI(v.ai),
-      };
-    } catch (e) {
-      if (e.code !== "ENOENT")
-        this.error =
-          "Saved preferences could not be read. Defaults are in use.";
-    }
+    await this.settings.init();
+    this.error = this.settings.error;
+  }
+  close() {
+    if (this.ownsSettings) this.settings.close();
   }
   async encryptionAvailable() {
     return (
@@ -122,15 +79,14 @@ class Preferences {
       credentialError,
       storageAvailable: await this.encryptionAvailable(),
       storagePath: this.tokenPath,
+      settingsPath: this.settings.path,
       error: this.error,
     };
   }
   async setTheme(theme) {
     if (!["system", "light", "dark"].includes(theme))
       throw new Error("Invalid appearance choice.");
-    const next = { ...this.value, theme };
-    await atomicWrite(this.settingsPath, JSON.stringify(next, null, 2));
-    this.value = next;
+    await this.settings.patch("preferences", { theme });
     return this.status();
   }
   async saveAI(input) {
@@ -164,9 +120,7 @@ class Preferences {
     );
     // The credential includes its endpoint binding; a partial write cannot send it elsewhere.
     await atomicWrite(this.tokenPath, encrypted);
-    const next = { ...this.value, ai };
-    await atomicWrite(this.settingsPath, JSON.stringify(next, null, 2));
-    this.value = next;
+    await this.settings.patch("preferences", { ai });
     return this.status();
   }
   async removeToken() {

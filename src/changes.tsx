@@ -21,12 +21,19 @@ export type Change = {
   address: string;
   severity: string;
   observed_at: number;
+  last_seen?: number;
+  occurrences?: number;
   status: string;
   evidence: {
     summary: string;
     baseline: Record<string, any>;
     observed: Record<string, any>;
     note: string;
+    activity?: {
+      occurrences: number;
+      lastObservedAt: number;
+      recent: Record<string, any>[];
+    };
   };
   explanation: {
     text: string;
@@ -43,6 +50,7 @@ export type ChangeFeed = {
     minimumObservedMs: number;
     minimumMeasuredMinutes: number;
   };
+  reviewWindowHours?: number;
   updatedAt: number;
 };
 const labels: Record<string, string> = {
@@ -92,7 +100,7 @@ export function Changes({
         <div className="card">
           <TriangleAlert size={20} />
           <strong>{data?.counts.open || 0}</strong>
-          <span>Open changes</span>
+          <span>Open change groups · last 24 hours</span>
         </div>
         <div className="card">
           <Network size={20} />
@@ -102,15 +110,18 @@ export function Changes({
         <div className="card">
           <Sparkles size={20} />
           <strong>{data?.counts.spikes || 0}</strong>
-          <span>Measured traffic spikes</span>
+          <span>Open traffic spike groups</span>
         </div>
       </div>
       <div className="banner">
         <Info size={17} />
         <span>
-          Novelty detection starts after two minutes of observed history per
-          app. Spikes require five earlier measured minutes. Flags mean
-          different from saved history; they do not establish malicious traffic.
+          Repeated activity is grouped by app and change type. The count tracks
+          unresolved groups active in the last 24 hours. Marking a group
+          reviewed keeps its learned baseline and history. Novelty detection
+          starts after two minutes of observed history per app. Spikes require
+          five earlier measured minutes. Flags mean different from saved
+          history; they do not establish malicious traffic.
         </span>
       </div>
       {error && (
@@ -124,10 +135,24 @@ export function Changes({
             <div>
               <h2>What changed</h2>
               <p>
-                Evidence is frozen before the profile learns the new
-                observation.
+                Original baselines are retained while related observations are
+                grouped.
               </p>
             </div>
+            <button
+              className="button"
+              disabled={!data?.counts.open}
+              onClick={async () => {
+                const r = await window.watchmen?.dismissAllChanges();
+                if (r && !r.ok) setError(r.error);
+                else {
+                  setSelected(null);
+                  setRevision((v) => v + 1);
+                }
+              }}
+            >
+              Mark all reviewed
+            </button>
             <button
               className="icon-button"
               aria-label="Refresh changes"
@@ -164,7 +189,8 @@ export function Changes({
               onChange={(e) => setStatus(e.target.value)}
             >
               <option value="open">Open</option>
-              <option value="dismissed">Dismissed</option>
+              <option value="dismissed">Reviewed</option>
+              <option value="archived">Archived / older than 24 hours</option>
               <option value="all">All saved</option>
             </select>
           </div>
@@ -195,14 +221,20 @@ export function Changes({
                       </span>
                       <strong>{a.app_name}</strong>
                       <small>{a.address || a.evidence.summary}</small>
+                      {(a.occurrences || 1) > 1 && (
+                        <small>{a.occurrences} new observations grouped</small>
+                      )}
                     </td>
                     <td className="profile-date">
-                      {new Date(a.observed_at).toLocaleString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
+                      {new Date(a.last_seen || a.observed_at).toLocaleString(
+                        undefined,
+                        {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        },
+                      )}
                       <small>{a.status}</small>
                     </td>
                     <td>
@@ -364,6 +396,30 @@ function ChangeDetail({
             )}
           </div>
         </div>
+        {(a.occurrences || 1) > 1 && (
+          <div className="banner">
+            <Info size={16} />
+            <span>
+              {a.occurrences} distinct observations are grouped here. The
+              original baseline is retained; last activity{" "}
+              {new Date(a.last_seen || a.observed_at).toLocaleString()}.
+            </span>
+          </div>
+        )}
+        {a.evidence.activity?.recent &&
+          a.evidence.activity.recent.length > 1 && (
+            <details>
+              <summary>Recent observations (up to 20)</summary>
+              <ul>
+                {a.evidence.activity.recent.map((item, index) => (
+                  <li key={index}>
+                    {item.address || item.country || "Traffic"}
+                    {item.protocol ? ` - ${item.protocol}/${item.port}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         <p className="change-note">{a.evidence.note}</p>
         <div className="ai-controls">
           {a.address && (

@@ -140,8 +140,10 @@ test("credential persistence, rotation, endpoint binding, removal and fail-close
       };
     },
   };
+  const opened = [];
   try {
     const p = new Preferences(dir, safe);
+    opened.push(p);
     await p.init();
     await p.saveAI({ ...config, token: "synthetic-unit-test-token" });
     const bytes = await fs.readFile(p.tokenPath);
@@ -156,6 +158,7 @@ test("credential persistence, rotation, endpoint binding, removal and fail-close
     );
     await p.setTheme("dark");
     const next = new Preferences(dir, safe);
+    opened.push(next);
     await next.init();
     assert.equal((await next.status()).theme, "dark");
     assert.equal((await next.credential()).token, "synthetic-unit-test-token");
@@ -181,6 +184,7 @@ test("credential persistence, rotation, endpoint binding, removal and fail-close
       ...safe,
       isAsyncEncryptionAvailable: async () => false,
     });
+    opened.push(blocked);
     await blocked.init();
     await assert.rejects(
       () => blocked.saveAI({ ...config, token: "not-saved" }),
@@ -188,6 +192,7 @@ test("credential persistence, rotation, endpoint binding, removal and fail-close
     );
     await assert.rejects(() => fs.access(blocked.tokenPath));
   } finally {
+    for (const prefs of opened) prefs.close();
     assert.equal(path.dirname(dir), os.tmpdir());
     assert.ok(path.basename(dir).startsWith("watchmen-credentials-test-"));
     await fs.rm(dir, { recursive: true, force: true });

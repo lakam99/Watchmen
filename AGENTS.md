@@ -1,0 +1,5 @@
+# Watchmen delivery
+
+The user has requested a pushed GitHub release for each completed user-facing change. Update the release notes, run the checks appropriate to the change, commit and push the tested source to `master`. The Windows release workflow publishes from `master`/`main` pushes and supports explicit stable version tags. It automatically chooses the next patch when the package version is already used. Version-only release commits live on their release tags so automation does not rewrite the development branch. Verify the published release and assets before reporting delivery as complete.
+
+Keep `.watchmen`, traffic databases, credentials, captures, test evidence and generated release binaries out of Git. Application settings belong in the local SQLite settings store. API credentials remain in the Windows-encrypted credential file. Machine-wide firewall policy metadata keeps its protected administrator-only storage. Tests must not activate global app/country isolation or modify the user's saved firewall rules.

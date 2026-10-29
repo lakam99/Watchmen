@@ -1,11 +1,8 @@
 {
   "name": "watchmen",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "A local-first Windows network traffic monitor",
   "main": "electron/main.cjs",
-  "directories": {
-    "test": "tests"
-  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
@@ -13,13 +10,15 @@
     "start": "electron .",
     "package": "npm run build && npm run agent:build && node scripts/package.cjs",
     "test": "node --test tests/*.test.cjs",
-    "test:smoke": "node scripts/smoke.cjs"
+    "test:smoke": "node scripts/smoke.cjs",
+    "release:build": "npm run package && electron-builder --config electron-builder.config.cjs --win nsis --publish never && node scripts/release-artifacts.cjs"
   },
   "keywords": [],
-  "author": "",
+  "author": "Watchmen contributors",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "lucide-react": "^1.63.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
@@ -30,9 +29,14 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
     "playwright": "^1.64.1",
     "prettier": "^3.9.10",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lakam99/Watchmen.git"
   }
 }

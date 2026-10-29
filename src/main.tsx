@@ -1,3 +1,4 @@
+import { version as appVersion } from "../package.json";
 import React, { useState, useEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -75,10 +76,20 @@ import {
   type Insight,
   type AIConfig,
 } from "./ai";
+import { UpdateBanner, UpdateSettings, type UpdateState } from "./updates";
 declare global {
   interface Window {
     watchmen?: {
       onSnapshot: (fn: (s: Snapshot) => void) => () => void;
+      updatesStatus: () => Promise<Result<UpdateState>>;
+      updatesCheck: () => Promise<Result<UpdateState>>;
+      updatesDownload: () => Promise<Result<UpdateState>>;
+      updatesConfigure: (input: {
+        autoCheck: boolean;
+        autoDownload: boolean;
+      }) => Promise<Result<UpdateState>>;
+      updatesInstall: () => Promise<Result<UpdateState>>;
+      updatesRelease: () => Promise<Result<void>>;
       getStatus: () => Promise<Snapshot>;
       firewallStatus: (refresh?: boolean) => Promise<Result<RuleState>>;
       firewallCatalog: () => Promise<Result<RuleCatalog>>;
@@ -101,6 +112,23 @@ declare global {
       }>;
       openPath: (pid: number) => Promise<boolean>;
       relaunchElevated: () => Promise<boolean>;
+      viewSettings: () => Promise<
+        Result<{
+          page: string;
+          group: GroupBy;
+          filter: string;
+          lifecycle: string;
+          direction: string;
+          sort: string;
+          adapter: string;
+          windowSize: number;
+          search: string;
+        }>
+      >;
+      saveViewSettings: (
+        input: Record<string, unknown>,
+      ) => Promise<Result<unknown>>;
+      dismissAllChanges: () => Promise<Result<number>>;
       preferences: () => Promise<Result<PreferencesStatus>>;
       setTheme: (
         theme: "system" | "light" | "dark",
@@ -177,10 +205,8 @@ function App() {
     [adapter, setAdapter] = useState("all"),
     [windowSize, setWindowSize] = useState(60),
     [preferences, setPreferences] = useState<PreferencesStatus | null>(null),
-    [theme, setTheme] = useState<"system" | "light" | "dark">(() => {
-      const stored = localStorage.getItem("watchmen-theme");
-      return stored === "dark" || stored === "light" ? stored : "system";
-    }),
+    [viewLoaded, setViewLoaded] = useState(false),
+    [theme, setTheme] = useState<"system" | "light" | "dark">("system"),
     [showAI, setShowAI] = useState(false),
     [connection, setConnection] = useState<string | null>(null),
     [packetSearch, setPacketSearch] = useState("");
@@ -194,11 +220,63 @@ function App() {
     });
   }, []);
   useEffect(() => {
+    let active = true;
+    window.watchmen?.viewSettings().then((r) => {
+      if (active && r.ok) {
+        const v = r.value;
+        setPage(v.page);
+        setGroup(v.group);
+        setFilter(v.filter);
+        setLifecycle(v.lifecycle);
+        setDirection(v.direction);
+        setSort(v.sort);
+        setAdapter(v.adapter);
+        setWindowSize(v.windowSize);
+        setSearch(v.search);
+      }
+      if (active) setViewLoaded(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!viewLoaded) return;
+    const timer = setTimeout(() => {
+      window.watchmen
+        ?.saveViewSettings({
+          page,
+          group,
+          filter,
+          lifecycle,
+          direction,
+          sort,
+          adapter,
+          windowSize,
+          search: search.slice(0, 200),
+        })
+        .then((r) => {
+          if (r && !r.ok) setNotice(r.error);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    viewLoaded,
+    page,
+    group,
+    filter,
+    lifecycle,
+    direction,
+    sort,
+    adapter,
+    windowSize,
+    search,
+  ]);
+  useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       document.documentElement.dataset.theme =
         theme === "system" ? (mq.matches ? "dark" : "light") : theme;
-      localStorage.setItem("watchmen-theme", theme);
     };
     apply();
     mq.addEventListener("change", apply);
@@ -219,7 +297,19 @@ function App() {
     if (!window.watchmen) return;
     let alive = true;
     const apply = (s: Snapshot) => {
-      if (!alive || paused) return;
+      if (!alive) return;
+      if (paused) {
+        setData((current) => ({
+          ...current,
+          alertCount: s.alertCount,
+          locationsEnabled: s.locationsEnabled,
+          locationStatus: s.locationStatus,
+          locations: s.locations,
+          profileStatus: s.profileStatus,
+          agentError: s.agentError,
+        }));
+        return;
+      }
       setData({ ...empty, ...s });
       if (s.timestamp)
         setHistory((h) =>
@@ -358,12 +448,20 @@ function App() {
   }, [settings, inspected?.id]);
   const toggleLocation = async () => {
     if (!window.watchmen) return;
-    await window.watchmen.setLocations(!data.locationsEnabled);
-    setNotice(
-      data.locationsEnabled
-        ? "Location lookup turned off."
-        : "Location lookup enabled. Results arrive gradually.",
-    );
+    try {
+      const enabled = await window.watchmen.setLocations(
+        !data.locationsEnabled,
+      );
+      setNotice(
+        enabled
+          ? "Location lookup enabled and remembered. Results arrive gradually."
+          : "Location lookup turned off and remembered.",
+      );
+    } catch {
+      setNotice(
+        "The location lookup preference could not be saved. Check the local database permissions.",
+      );
+    }
   };
   const navigate = (name: string) => {
     setPage(name);
@@ -460,7 +558,8 @@ function App() {
               Settings & privacy
             </button>
             <div className="version">
-              <span className="tiny-logo">w</span> Watchmen <span>v0.6.0</span>
+              <span className="tiny-logo">w</span> Watchmen{" "}
+              <span>v{appVersion}</span>
             </div>
           </div>
         </aside>
@@ -589,6 +688,7 @@ function App() {
               )}
             </div>
             <RuleStatusBanner />
+            <UpdateBanner />
             {data.agentError && (
               <div className="banner error">
                 <Info size={18} />
@@ -1246,6 +1346,7 @@ function App() {
                   ))}
                 </div>
               </div>
+              <UpdateSettings />
               <AISettings
                 preferences={preferences}
                 update={setPreferences}
@@ -1258,7 +1359,8 @@ function App() {
                     Send public destination IPs to <b>ipwho.is</b> over HTTPS to
                     resolve approximate city, country, and network owner. Your
                     local IPs and packet contents are never submitted. One
-                    request per second; results stay in memory.
+                    request per second; this choice is saved for future
+                    launches.
                   </p>
                 </div>
                 <button
@@ -1288,9 +1390,9 @@ function App() {
                 <p>
                   Traffic metadata is saved locally to build your profile across
                   launches. Live charts stay in memory. Export saves the current
-                  session to a file you choose. Location lookup is off each time
-                  you launch; previously cached locations remain in your local
-                  profile.
+                  session to a file you choose. Location lookup starts off until
+                  you enable it; your saved choice is then reused. Cached
+                  locations remain in your local profile.
                 </p>
               </div>
               <small>
