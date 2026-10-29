@@ -1,0 +1,13 @@
+node_modules/
+dist/
+release/
+native/bin/
+native/**/bin/
+native/**/obj/
+test-results/
+*.log
+.watchmen/
+*.etl
+*.pcap
+*.pcapng
+*.cap

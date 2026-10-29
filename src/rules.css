@@ -1,0 +1,267 @@
+.network-rules-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.rule-create-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(400px, 1.2fr);
+  gap: 20px;
+  align-items: start;
+}
+.rule-create-grid h2 {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+.rule-create-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding: 22px;
+}
+.rule-create-body > p,
+.policy-impact {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.region-shortcuts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.region-shortcuts .button {
+  font-size: 10px;
+  padding: 7px 9px;
+}
+.region-shortcuts .selected {
+  border-color: #9270cf;
+  background: #9270cf22;
+}
+.country-rule-picker {
+  max-height: 180px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 12px;
+}
+.country-rule-picker label {
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.country-rule-picker label small {
+  margin-left: auto;
+  opacity: 0.55;
+}
+.country-rule-picker input,
+.policy-dialog input {
+  accent-color: #9362d6;
+}
+.row-rule-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.row-rule-actions .rule-button {
+  font-size: 10px;
+  padding: 6px 8px;
+  min-height: 29px;
+}
+.row-rule-actions .is-blocked {
+  color: #c3843d;
+  border-color: #c3843d66;
+}
+.only-app-button {
+  padding: 5px;
+}
+.button.danger {
+  background: #a64f3b;
+  color: #fff;
+  border-color: #a64f3b;
+}
+.button.danger:hover:not(:disabled) {
+  background: #893f2f;
+}
+.rule-state {
+  font-size: 10px;
+  display: inline-block;
+  border: 1px solid #87968f66;
+  border-radius: 5px;
+  padding: 5px 8px;
+  color: #688777;
+}
+.rule-state.blocked {
+  color: #bd753a;
+  border-color: #bd753a66;
+  background: #bd753a11;
+}
+.network-rules-view table td {
+  vertical-align: top;
+  max-width: 440px;
+  font-size: 11px;
+}
+.network-rules-view table td strong {
+  display: block;
+  font-size: 12px;
+}
+.network-rules-view table td small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.network-rules-view table code {
+  display: block;
+  margin-top: 7px;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  max-width: 440px;
+  color: var(--muted);
+}
+.policy-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #080b14a8;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  backdrop-filter: blur(5px);
+}
+.policy-dialog {
+  width: 670px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 90px #0007;
+}
+.policy-dialog .card-heading {
+  align-items: start;
+}
+.policy-dialog .card-heading h2 {
+  font-size: 20px;
+  line-height: 1.45;
+  max-width: 510px;
+}
+.policy-dialog-body {
+  padding: 24px;
+}
+.policy-dialog-body h3 {
+  font-size: 16px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
+}
+.rule-scope {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 14px 18px;
+  padding: 18px;
+  background: #9270cf0c;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+.rule-scope dt {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rule-scope dd {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin: 0;
+  line-height: 1.6;
+}
+.policy-impact.severe {
+  padding: 16px;
+  border: 1px solid #c4864566;
+  background: #c4864511;
+  border-radius: 7px;
+  color: #a76e39;
+}
+.policy-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 25px;
+}
+.policy-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 700px;
+  padding: 14px 20px;
+  border: 1px solid #9270cf66;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  box-shadow: 0 7px 35px #0003;
+  font-size: 12px;
+}
+.policy-toast.error {
+  border-color: #a64f3b;
+  color: #a64f3b;
+}
+.isolation-banner {
+  border-color: #c4864577;
+  background: #c4864510;
+}
+.isolation-banner strong {
+  color: #bd8240;
+}
+.isolation-banner > span {
+  flex: 1;
+}
+.isolation-banner button {
+  white-space: nowrap;
+}
+html[data-theme="dark"] .policy-dialog {
+  background: #1c1d29;
+}
+html[data-theme="dark"] .policy-toast {
+  background: #222230;
+  color: #dbd5e6;
+}
+html[data-theme="dark"] .network-rules-view select {
+  background: #282333;
+  color: #dbd5e6;
+  border: 1px solid #584565;
+  padding: 9px;
+  border-radius: 6px;
+}
+html[data-theme="dark"] .rule-state.blocked {
+  color: #e2ac70;
+}
+html[data-theme="dark"] .policy-impact.severe {
+  color: #deb17e;
+}
+@media (max-width: 1150px) {
+  .rule-create-grid {
+    grid-template-columns: 1fr;
+  }
+  .network-rules-view table td {
+    max-width: 280px;
+  }
+  .row-rule-actions {
+    gap: 2px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .policy-backdrop {
+    backdrop-filter: none;
+  }
+}
