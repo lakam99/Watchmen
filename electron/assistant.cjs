@@ -1,4 +1,15 @@
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
+const credentialKey = (config) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify([
+        config.provider,
+        config.baseUrl,
+        config.model,
+        config.token,
+      ]),
+    )
+    .digest("hex");
 const {
   AssistantTools,
   definitions,
@@ -79,6 +90,8 @@ class Assistant {
       lookup: (ip, signal) => this.lookup(ip, signal),
       research: (q, signal) => this.research(q, signal),
     });
+    this.contextOptionsKey = JSON.stringify(this.options());
+    this.contextCredentialKey = null;
   }
   options() {
     return this.settings.get("assistant");
@@ -130,6 +143,8 @@ class Assistant {
       throw new UserError("Wait for the approved network action to finish.");
     this.cancel();
     this.tools.reset();
+    this.contextOptionsKey = JSON.stringify(this.options());
+    this.contextCredentialKey = null;
     this.turns = [];
     this.messages = [];
     this.trace = [];
@@ -261,6 +276,13 @@ class Assistant {
       /[\u0000]/.test(input)
     )
       throw new UserError("Enter a message of up to 4,000 characters.");
+    if (this.contextOptionsKey !== JSON.stringify(this.options())) {
+      this.reset();
+      this.add(
+        "event",
+        "Permissions changed in another window. Earlier context and reviews were cleared.",
+      );
+    }
     this.tools.discardPending();
     this.busy = true;
     this.phase = "Connecting to OpenRouter";
@@ -281,6 +303,18 @@ class Assistant {
     try {
       const config = await this.preferences.credential();
       current();
+      const key = credentialKey(config);
+      if (this.contextCredentialKey && this.contextCredentialKey !== key) {
+        this.tools.reset();
+        this.turns = [];
+        this.messages = [];
+        this.trace = [];
+        this.add(
+          "event",
+          "AI credentials changed in another window. Earlier context and reviews were cleared.",
+        );
+      }
+      this.contextCredentialKey = key;
       if (
         config.provider !== "openrouter" ||
         config.baseUrl !== "https://openrouter.ai/api/v1"
@@ -503,6 +537,43 @@ class Assistant {
       throw new UserError(
         "Wait for the response to finish before approving a task.",
       );
+    if (this.contextOptionsKey !== JSON.stringify(this.options())) {
+      this.reset();
+      throw new UserError(
+        "Permissions changed in another window. Request a fresh review.",
+      );
+    }
+    const generation = this.generation;
+    let config;
+    try {
+      config = await this.preferences.credential();
+    } catch {
+      if (
+        generation === this.generation &&
+        !this.busy &&
+        !this.tools.actionBusy
+      )
+        this.reset();
+      throw new UserError(
+        "AI credentials changed or are unavailable. Request a fresh review.",
+      );
+    }
+    if (generation !== this.generation || this.busy)
+      throw new UserError("The session changed. Request a fresh review.");
+    if (this.contextOptionsKey !== JSON.stringify(this.options())) {
+      this.reset();
+      throw new UserError(
+        "Permissions changed in another window. Request a fresh review.",
+      );
+    }
+    const key = credentialKey(config);
+    if (this.contextCredentialKey && this.contextCredentialKey !== key) {
+      this.reset();
+      throw new UserError(
+        "AI credentials changed in another window. Request a fresh review.",
+      );
+    }
+    this.contextCredentialKey = key;
     const result = await this.tools.approve(id, acknowledged);
     this.add("event", result.result);
     return this.status();

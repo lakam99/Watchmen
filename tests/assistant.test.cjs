@@ -109,15 +109,14 @@ function fixture({
     patch: async (_, input) =>
       (permissions = normalize("assistant", { ...permissions, ...input })),
   };
+  const credentials = {
+    provider: "openrouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "fixture/tool-model",
+    token,
+  };
   const manager = new Assistant({
-    preferences: {
-      credential: async () => ({
-        provider: "openrouter",
-        baseUrl: "https://openrouter.ai/api/v1",
-        model: "fixture/tool-model",
-        token,
-      }),
-    },
+    preferences: { credential: async () => structuredClone(credentials) },
     settings,
     snapshot: () => snapshot,
     history: () => null,
@@ -138,6 +137,7 @@ function fixture({
     requests,
     native,
     settings,
+    credentials,
     advance: (ms) => (now += ms),
     saved: () => saved,
   };
@@ -523,6 +523,56 @@ test("changing permissions invalidates prior transcripts, targets and pending ac
         webSearch: false,
       }),
     /permissions/,
+  );
+});
+
+test("permission revocation by another instance cannot resend previously shared context", async () => {
+  const f = fixture({
+    options: { shareIPs: true },
+    fetch: (body) => {
+      const lastUser = body.messages
+        .filter((m) => m.role === "user")
+        .at(-1).content;
+      if (
+        lastUser === "Inspect the initial connections" &&
+        !body.messages.some((m) => m.role === "tool")
+      )
+        return reply(call("inspect_connections"));
+      return reply({ content: "Current response." });
+    },
+  });
+  await f.manager.send("Inspect the initial connections");
+  assert.ok(JSON.stringify(f.requests.at(-1).body).includes("8.8.8.8"));
+  await f.settings.patch("assistant", { shareIPs: false });
+  await f.manager.send("A new request after revocation");
+  assert.ok(!JSON.stringify(f.requests.at(-1).body).includes("8.8.8.8"));
+  const other = fixture({ options: { shareIPs: true } });
+  await prepareBlock(other);
+  const old = other.manager.status().proposals[0].id;
+  await other.settings.patch("assistant", { shareIPs: false });
+  await assert.rejects(
+    () => other.manager.approve(old, false),
+    /Permissions changed/,
+  );
+  assert.equal(other.native.length, 0);
+});
+
+test("credential changes cannot reuse the previous account's context or action reviews", async () => {
+  const f = fixture();
+  await f.manager.send("Private context from the first account");
+  await prepareBlock(f);
+  const previous = f.manager.status().proposals[0].id;
+  f.credentials.token += "-rotated";
+  await assert.rejects(
+    () => f.manager.approve(previous, false),
+    /credentials changed/i,
+  );
+  assert.equal(f.native.length, 0);
+  await f.manager.send("Request under the replacement account");
+  assert.ok(
+    !JSON.stringify(f.requests.at(-1).body).includes(
+      "Private context from the first account",
+    ),
   );
 });
 test("cancellation ignores late model tool calls and cannot clear a newer active turn", async () => {
