@@ -1,9 +1,15 @@
 const path = require("node:path");
 const version = require("./package.json").version;
+const electronDist = path.join(__dirname, "node_modules", "electron", "dist");
 module.exports = {
   appId: "com.watchmen.networkmonitor",
   productName: "Watchmen",
-  electronDist: "node_modules/electron/dist",
+  // Recent Electron npm packages may contain no downloaded runtime on a clean
+  // runner. Builder then downloads the exact locked Electron version itself.
+  electronVersion: require("electron/package.json").version,
+  ...(require("node:fs").existsSync(path.join(electronDist, "electron.exe"))
+    ? { electronDist }
+    : {}),
   directories: { output: path.join("release", version, "installer") },
   files: ["electron/**/*", "dist/**/*", "assets/**/*", "package.json"],
   extraResources: [
