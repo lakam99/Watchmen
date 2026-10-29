@@ -41,6 +41,8 @@ async function audit() {
       "electron/settings-store.cjs",
       "electron/preferences.cjs",
       "electron/ai-config.cjs",
+      "electron/assistant.cjs",
+      "electron/assistant-tools.cjs",
       "electron/anomalies.cjs",
       "electron/workspace.cjs",
       "electron/update-install-guard.cjs",

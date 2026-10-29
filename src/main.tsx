@@ -35,6 +35,7 @@ import {
   Sparkles,
   Database,
   TriangleAlert,
+  Bot,
 } from "lucide-react";
 import {
   bytes,
@@ -51,6 +52,12 @@ import "./profile.css";
 import "./inspection.css";
 import "./rules.css";
 import "./terminal.css";
+import "./assistant.css";
+import {
+  AIConsole,
+  type AssistantState,
+  type AssistantOptions,
+} from "./assistant";
 import {
   RuleProvider,
   RuleStatusBanner,
@@ -81,6 +88,20 @@ import { UpdateBanner, UpdateSettings, type UpdateState } from "./updates";
 declare global {
   interface Window {
     watchmen?: {
+      assistantStatus: () => Promise<Result<AssistantState>>;
+      assistantSend: (text: string) => Promise<Result<AssistantState>>;
+      assistantCancel: () => Promise<Result<AssistantState>>;
+      assistantReset: () => Promise<Result<AssistantState>>;
+      assistantConfigure: (
+        options: AssistantOptions,
+      ) => Promise<Result<AssistantState>>;
+      assistantApprove: (
+        id: string,
+        acknowledged: boolean,
+      ) => Promise<Result<AssistantState>>;
+      assistantReject: (id: string) => Promise<Result<AssistantState>>;
+      assistantSource: (url: string) => Promise<Result<void>>;
+      onAssistant: (fn: (state: AssistantState) => void) => () => void;
       onSnapshot: (fn: (s: Snapshot) => void) => () => void;
       updatesStatus: () => Promise<Result<UpdateState>>;
       updatesCheck: () => Promise<Result<UpdateState>>;
@@ -207,10 +228,34 @@ function App() {
     [windowSize, setWindowSize] = useState(60),
     [preferences, setPreferences] = useState<PreferencesStatus | null>(null),
     [viewLoaded, setViewLoaded] = useState(false),
+    [assistantActivity, setAssistantActivity] = useState({
+      busy: false,
+      pending: 0,
+    }),
     [theme, setTheme] = useState<"system" | "light" | "dark">("system"),
     [showAI, setShowAI] = useState(false),
     [connection, setConnection] = useState<string | null>(null),
     [packetSearch, setPacketSearch] = useState("");
+  useEffect(() => {
+    const bridge = window.watchmen;
+    if (!bridge) return;
+    let active = true;
+    const update = (s: AssistantState) => {
+      if (active)
+        setAssistantActivity({
+          busy: s.busy || s.actionBusy,
+          pending: s.proposals.filter((p) => p.status === "pending").length,
+        });
+    };
+    const off = bridge.onAssistant(update);
+    bridge.assistantStatus().then((r) => {
+      if (r.ok) update(r.value);
+    });
+    return () => {
+      active = false;
+      off();
+    };
+  }, []);
   useEffect(() => {
     window.watchmen?.preferences().then((r) => {
       if (r.ok) {
@@ -523,6 +568,7 @@ function App() {
               [TriangleAlert, "Changes"],
               [Radio, "Packets"],
               [Shield, "Network rules"],
+              [Bot, "AI console"],
             ].map(([Icon, name]: any, index: number) => (
               <button
                 key={name}
@@ -538,6 +584,14 @@ function App() {
                 {name === "Applications" && (
                   <span className="nav-count">{appCount}</span>
                 )}
+                {name === "AI console" &&
+                  (assistantActivity.busy || assistantActivity.pending > 0) && (
+                    <span className="nav-count">
+                      {assistantActivity.busy
+                        ? "RUN"
+                        : assistantActivity.pending}
+                    </span>
+                  )}
                 {name === "Changes" && !!data.alertCount && (
                   <span className="change-count">{data.alertCount}</span>
                 )}
@@ -576,6 +630,18 @@ function App() {
               <strong>{page}</strong>
             </div>
             <div className="header-right">
+              <button
+                className="button"
+                onClick={() => navigate("AI console")}
+                aria-label="Open AI console"
+              >
+                <Bot size={14} />
+                {assistantActivity.busy
+                  ? "AI working"
+                  : assistantActivity.pending
+                    ? `${assistantActivity.pending} AI review${assistantActivity.pending === 1 ? "" : "s"}`
+                    : "AI console"}
+              </button>
               {!!data.alertCount && (
                 <button
                   className="button changes-shortcut"
@@ -676,36 +742,40 @@ function App() {
                 <h1>
                   {page === "Network rules"
                     ? "Access control"
-                    : page === "Changes"
-                      ? "Change analysis"
-                      : page === "Packets"
-                        ? "Packet inspection"
-                        : page === "Traffic profile"
-                          ? "Traffic archive"
-                          : page === "Overview"
-                            ? "Network overview"
-                            : page === "Applications"
-                              ? "Application traffic"
-                              : page === "Destinations"
-                                ? "Destination registry"
-                                : page === "Locations"
-                                  ? "Location telemetry"
-                                  : "Connection matrix"}
+                    : page === "AI console"
+                      ? "AI command console"
+                      : page === "Changes"
+                        ? "Change analysis"
+                        : page === "Packets"
+                          ? "Packet inspection"
+                          : page === "Traffic profile"
+                            ? "Traffic archive"
+                            : page === "Overview"
+                              ? "Network overview"
+                              : page === "Applications"
+                                ? "Application traffic"
+                                : page === "Destinations"
+                                  ? "Destination registry"
+                                  : page === "Locations"
+                                    ? "Location telemetry"
+                                    : "Connection matrix"}
                 </h1>
                 <p>
                   {page === "Network rules"
                     ? "Block apps, endpoints or regions, and decide which executable can reach the network."
-                    : page === "Changes"
-                      ? "Compare new observations with saved traffic profiles, then ask OpenRouter to explain the evidence."
-                      : page === "Packets"
-                        ? "Inspect decoded packet headers and readable unencrypted payloads in a short local capture."
-                        : page === "Traffic profile"
-                          ? "Learn recurring apps, destinations, and services from the history saved on this computer."
-                          : page === "Overview"
-                            ? "Live transfer rates, application activity, and connection telemetry."
-                            : page === "Locations"
-                              ? "Explore approximate IP locations. VPNs, proxies, and anycast can affect results."
-                              : "Explore live network activity and inspect the connections behind it."}
+                    : page === "AI console"
+                      ? "Live telemetry, public research, and reviewed network tasks through OpenRouter."
+                      : page === "Changes"
+                        ? "Compare new observations with saved traffic profiles, then ask OpenRouter to explain the evidence."
+                        : page === "Packets"
+                          ? "Inspect decoded packet headers and readable unencrypted payloads in a short local capture."
+                          : page === "Traffic profile"
+                            ? "Learn recurring apps, destinations, and services from the history saved on this computer."
+                            : page === "Overview"
+                              ? "Live transfer rates, application activity, and connection telemetry."
+                              : page === "Locations"
+                                ? "Explore approximate IP locations. VPNs, proxies, and anycast can affect results."
+                                : "Explore live network activity and inspect the connections behind it."}
                 </p>
               </div>
               {![
@@ -713,6 +783,7 @@ function App() {
                 "Changes",
                 "Packets",
                 "Network rules",
+                "AI console",
               ].includes(page) && (
                 <div className="heading-actions">
                   <button
@@ -804,7 +875,20 @@ function App() {
                 {data.profileStatus.error}
               </div>
             )}
-            {page === "Network rules" ? (
+            {page === "AI console" ? (
+              <AIConsole
+                preferences={preferences}
+                admin={data.admin}
+                setup={() => setSettings(true)}
+                elevate={async () => {
+                  if (!(await window.watchmen?.relaunchElevated()))
+                    setNotice(
+                      "Administrator access was canceled. The proposed action has not been applied.",
+                    );
+                }}
+                navigate={navigate}
+              />
+            ) : page === "Network rules" ? (
               <NetworkRules />
             ) : page === "Traffic profile" ? (
               <TrafficProfile />

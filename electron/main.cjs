@@ -28,6 +28,9 @@ const { Firewall } = require("./firewall.cjs");
 const { Updates, releaseUrl } = require("./updates.cjs");
 const { resolveWorkspace, rememberWorkspace } = require("./workspace.cjs");
 const { SettingsStore } = require("./settings-store.cjs");
+const { Assistant } = require("./assistant.cjs");
+const { sourceURL } = require("./assistant-tools.cjs");
+let assistant;
 let localSettings;
 let updates;
 let firewall;
@@ -280,8 +283,38 @@ safeHandle("theme", async (theme) => {
   nativeTheme.themeSource = theme;
   return status;
 });
-safeHandle("ai-save", (input) => preferences.saveAI(input));
-safeHandle("ai-remove", () => preferences.removeToken());
+safeHandle("ai-save", (input) => {
+  assistant?.reset();
+  return preferences.saveAI(input);
+});
+safeHandle("ai-remove", () => {
+  assistant?.reset();
+  return preferences.removeToken();
+});
+safeHandle("assistant-status", () => assistant.status());
+safeHandle("assistant-send", (text) => assistant.send(text));
+safeHandle("assistant-cancel", () => assistant.cancel());
+safeHandle("assistant-reset", () => assistant.reset());
+safeHandle("assistant-configure", (options) => assistant.configure(options));
+safeHandle("assistant-approve", (id, acknowledged) =>
+  assistant.approve(id, acknowledged),
+);
+safeHandle("assistant-reject", (id) => assistant.reject(id));
+safeHandle("assistant-source", (url) => {
+  const safe = sourceURL(url);
+  if (
+    !safe ||
+    !assistant.trace.some(
+      (t) =>
+        t.tool === "search_web" &&
+        t.result?.sources?.some((s) => s.url === safe),
+    )
+  )
+    throw new Error(
+      "This source is not available in the current research session.",
+    );
+  return shell.openExternal(safe);
+});
 safeHandle("ai-preview", (request) => {
   let profileBaseline = [];
   if (trafficStore && Array.isArray(request?.flowIds)) {
@@ -500,13 +533,27 @@ app.whenReady().then(async () => {
         ? "Wait for the current network-rule task to finish before restarting."
         : packets?.status()?.active || packets?.status()?.processing
           ? "Stop the packet capture before restarting."
-          : null,
+          : assistant?.busy
+            ? "Stop the AI console response before restarting."
+            : null,
   });
   await updates.init();
   nativeTheme.themeSource = preferences.value.theme;
   insights = new Insights(preferences, (url, options) =>
     net.fetch(url, options),
   );
+  assistant = new Assistant({
+    preferences,
+    settings: localSettings,
+    snapshot: current,
+    history: () => trafficStore,
+    firewall,
+    fetch: (url, options) => net.fetch(url, options),
+    changed: (state) => {
+      if (win && !win.isDestroyed())
+        win.webContents.send("assistant-state", state);
+    },
+  });
   const savedWindow = localSettings.get("window");
   win = new BrowserWindow({
     width: savedWindow.width,
@@ -584,6 +631,7 @@ function closeHistory() {
 }
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
+  assistant?.cancel();
   insights?.cancel();
   updates?.dispose();
   if (shuttingDown) return;

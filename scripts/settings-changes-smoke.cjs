@@ -247,6 +247,7 @@ async function waitForIPC(read, predicate) {
     );
     assert.equal(verification.storedTheme, "dark");
     assert.deepEqual(verification.settingsRows, [
+      "assistant",
       "monitor",
       "preferences",
       "updates",
@@ -261,7 +262,7 @@ async function waitForIPC(read, predicate) {
         "80 new IPs represented as one review group",
         "mark all reviewed clears badge even while view is paused",
         "reviewed history retained",
-        "four settings namespaces in local SQLite",
+        "five settings namespaces in local SQLite",
         "no renderer errors",
       ],
     };

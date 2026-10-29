@@ -4,7 +4,7 @@ A local-first Windows desktop network monitor with a spaceship terminal interfac
 
 ## Run the desktop app
 
-Open `release/0.9.0/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
+Open `release/0.10.0/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
 
 The standard mode reads live TCP connections, UDP listening sockets, process ownership, and incoming/outgoing network-interface rates. Use **Enable detailed capture** to relaunch with Windows administrator approval and enable per-process TCP/UDP byte counts. Canceling UAC leaves standard monitoring available.
 
@@ -93,6 +93,20 @@ Open **Packets** and choose a 5–30 second capture, or import a local PCAP/PCAP
 Search addresses, apps, protocols, and summaries, filter incoming/outgoing records, then select a packet for readable header fields, DNS questions, HTTP/plaintext where present, and header bytes. Common credential headers and token/password fields are redacted from text previews. This is a limited per-packet preview: it does not reassemble streams, decode every binary protocol, or decrypt TLS/HTTPS/QUIC. Encrypted payloads are labeled accordingly. App ownership is matched to current socket tuples when unambiguous; historical imports can remain unattributed. Packet direction uses this machine's current interface addresses.
 
 Live packet data stays in memory until another capture/import or app exit and is never stored in the profile database or sent to AI. On systems with several adapters, a packet may appear more than once. Imported captures remain the user's original files.
+
+## AI command console and function tools
+
+Open **AI console** from the numbered navigation or header. Configure OpenRouter and a model with function/tool support under **Settings & privacy**. The existing Windows-encrypted token is reused; the console never sends it in a message or tool result. Other providers remain available for the original one-shot insights feature.
+
+The chatbot can read current capture health, applications and connections, bounded historical app summaries, grouped connection changes, and saved Watchmen rules. Tool activity and results are inspectable beside the conversation. Responses keep running when you return to monitoring. **Stop response** aborts a model turn and invalidates its pending reviews. **Clear session** clears the in-memory transcript, tool results and pending reviews. Chat history is not saved across app restarts.
+
+External tools start disabled. **Allow public IP lookups** permits the fixed ipwho.is HTTPS endpoint to receive a public destination IP selected from a current connection. Private/local/reserved destinations are refused. **Allow web research** permits an isolated public research query through OpenRouter's [web search server tool](https://openrouter.ai/docs/guides/features/server-tools/web-search), with source citations; it may add search charges. The research request contains the public query rather than the local conversation/tool transcript. The legacy web plugin is explicitly disabled on console requests. Model variants with the automatic `:online` suffix are refused. Account/provider policies still govern service behavior and logging.
+
+**Share public destination IPs** separately controls address fields supplied to the model. It starts off. Structured local tool results omit executable paths, private IPs, and packet payloads. Your typed messages are sent as written, except the configured API token is redacted if pasted accidentally. Permission choices persist in the local SQLite database; changing them clears the conversation to prevent older shared context from being reused.
+
+The model can **prepare** an app, connection or destination block, or disable one existing Watchmen rule. Targets come from discovered opaque references, never model-supplied paths or arbitrary IPs. The local review card displays the exact executable, address, protocol, port and scope. Only **Approve block/unblock** executes that frozen proposal. Approvals expire after five minutes and are invalidated by a new message, cancellation, reset or AI credential change. Broad saved isolation/region rule disables require an extra scope acknowledgement. Windows administrator access is still required. Other overlapping rules may continue to block the target; an unverified Windows commit is shown as needing verification.
+
+No shell commands, arbitrary URL fetches, file/packet reads, SQL, custom tool installation, bulk unblocks or new region/only-app isolation policies are exposed to the model. Use the existing manual views for those supported app workflows. External source text and app metadata are treated as untrusted data. This release's provider flow and Windows operations were tested with simulated responses/transport; no real user token or paid inference was used.
 
 ## AI insights and token storage
 

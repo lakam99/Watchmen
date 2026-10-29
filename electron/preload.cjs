@@ -5,6 +5,21 @@ contextBridge.exposeInMainWorld("watchmen", {
     ipcRenderer.on("snapshot", fn);
     return () => ipcRenderer.removeListener("snapshot", fn);
   },
+  assistantStatus: () => ipcRenderer.invoke("assistant-status"),
+  assistantSend: (text) => ipcRenderer.invoke("assistant-send", text),
+  assistantCancel: () => ipcRenderer.invoke("assistant-cancel"),
+  assistantReset: () => ipcRenderer.invoke("assistant-reset"),
+  assistantConfigure: (options) =>
+    ipcRenderer.invoke("assistant-configure", options),
+  assistantApprove: (id, acknowledged = false) =>
+    ipcRenderer.invoke("assistant-approve", id, acknowledged),
+  assistantReject: (id) => ipcRenderer.invoke("assistant-reject", id),
+  assistantSource: (url) => ipcRenderer.invoke("assistant-source", url),
+  onAssistant: (callback) => {
+    const fn = (_, state) => callback(state);
+    ipcRenderer.on("assistant-state", fn);
+    return () => ipcRenderer.removeListener("assistant-state", fn);
+  },
   updatesStatus: () => ipcRenderer.invoke("updates-status"),
   updatesCheck: () => ipcRenderer.invoke("updates-check"),
   updatesDownload: () => ipcRenderer.invoke("updates-download"),

@@ -12,6 +12,7 @@ const defaults = {
     },
   },
   updates: { autoCheck: true, autoDownload: true },
+  assistant: { shareIPs: false, ipLookups: false, webSearch: false },
   monitor: {
     page: "Overview",
     group: "app",
@@ -42,6 +43,15 @@ function normalize(key, value) {
       throw new Error("Choose valid update preferences.");
     return { autoCheck: value.autoCheck, autoDownload: value.autoDownload };
   }
+  if (key === "assistant") {
+    const result = {};
+    for (const field of ["shareIPs", "ipLookups", "webSearch"]) {
+      if (typeof value[field] !== "boolean")
+        throw new Error("Choose valid AI console permissions.");
+      result[field] = value[field];
+    }
+    return result;
+  }
   if (key === "window") {
     if (
       !Number.isInteger(value.width) ||
@@ -71,6 +81,7 @@ function normalize(key, value) {
         "Changes",
         "Packets",
         "Network rules",
+        "AI console",
       ],
       group: ["app", "destination", "country", "protocol"],
       filter: ["all", "internet", "local", "listener"],
