@@ -50,6 +50,7 @@ import "./additions.css";
 import "./profile.css";
 import "./inspection.css";
 import "./rules.css";
+import "./terminal.css";
 import {
   RuleProvider,
   RuleStatusBanner,
@@ -498,7 +499,7 @@ function App() {
               <Shield size={23} />
             </span>
             <div>
-              watchmen<span>NETWORK INTELLIGENCE</span>
+              WATCHMEN<span>NETWORK OPERATIONS</span>
             </div>
           </div>
           <div className="workspace">
@@ -506,11 +507,11 @@ function App() {
               <Monitor size={18} />
             </span>
             <div>
-              This computer<small>Windows · local monitor</small>
+              LOCAL NODE<small>Windows / local</small>
             </div>
             <span className="live-dot" />
           </div>
-          <div className="nav-label">WORKSPACE</div>
+          <div className="nav-label">OPERATIONS</div>
           <nav>
             {[
               [Activity, "Overview"],
@@ -522,15 +523,18 @@ function App() {
               [TriangleAlert, "Changes"],
               [Radio, "Packets"],
               [Shield, "Network rules"],
-            ].map(([Icon, name]: any) => (
+            ].map(([Icon, name]: any, index: number) => (
               <button
                 key={name}
                 aria-label={name}
                 className={page === name ? "nav-item active" : "nav-item"}
                 onClick={() => navigate(name)}
               >
+                <span className="nav-index" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
                 <Icon size={19} />
-                {name}
+                <span className="nav-name">{name}</span>
                 {name === "Applications" && (
                   <span className="nav-count">{appCount}</span>
                 )}
@@ -543,11 +547,11 @@ function App() {
           <div className="sidebar-bottom">
             <div className="local-card">
               <div>
-                <Shield size={17} /> Your network, in view.
+                <Shield size={17} /> LOCAL DATA VAULT
               </div>
               <p>
-                Traffic data stays on this computer. You control location
-                lookup.
+                Traffic profiles stay on this device. External lookups are
+                optional.
               </p>
               <span>
                 LOCAL FIRST <Check size={13} />
@@ -568,7 +572,7 @@ function App() {
         >
           <header className="topbar">
             <div className="breadcrumbs">
-              Workspace <ChevronRight size={13} />
+              Console <ChevronRight size={13} />
               <strong>{page}</strong>
             </div>
             <div className="header-right">
@@ -578,7 +582,8 @@ function App() {
                   onClick={() => navigate("Changes")}
                 >
                   <TriangleAlert size={14} />
-                  {data.alertCount} changes
+                  {data.alertCount}{" "}
+                  {data.alertCount === 1 ? "change" : "changes"}
                 </button>
               )}
               <button
@@ -623,28 +628,69 @@ function App() {
               </button>
             </div>
           </header>
+          <section className="telemetry-strip" aria-label="Collector telemetry">
+            <span className="telemetry-node">
+              <Radio size={12} /> LOCAL / NETWORK
+            </span>
+            <span>
+              <small>ACQUISITION</small>
+              <b>
+                {!latest
+                  ? "CONNECTING"
+                  : data.agentError
+                    ? "OFFLINE"
+                    : data.tracing
+                      ? "ETW / DETAILED"
+                      : "SOCKET TABLE"}
+              </b>
+            </span>
+            <span>
+              <small>SOCKETS</small>
+              <b>
+                {data.flows.filter((f) => f.active).length.toLocaleString()}
+              </b>
+            </span>
+            <span>
+              <small>LAST SAMPLE</small>
+              <b>
+                {latest
+                  ? latest.toLocaleTimeString([], { hour12: false })
+                  : "--:--:--"}
+              </b>
+            </span>
+            <span>
+              <small>PROFILE DB</small>
+              <b>
+                {data.profileStatus?.available
+                  ? "LOCAL / SQLITE"
+                  : data.profileStatus?.error
+                    ? "UNAVAILABLE"
+                    : "INITIALIZING"}
+              </b>
+            </span>
+          </section>
           <div className="content">
             <div className="page-heading">
               <div>
-                <div className="eyebrow">A LITTLE CLARITY FOR YOUR NETWORK</div>
+                <div className="eyebrow">WATCHMEN / NETWORK TELEMETRY</div>
                 <h1>
                   {page === "Network rules"
-                    ? "Your network. Your rules."
+                    ? "Access control"
                     : page === "Changes"
-                      ? "Know what changed."
+                      ? "Change analysis"
                       : page === "Packets"
-                        ? "Packets, in plain language."
+                        ? "Packet inspection"
                         : page === "Traffic profile"
-                          ? "A profile that grows with you."
+                          ? "Traffic archive"
                           : page === "Overview"
-                            ? "Every connection. A clearer picture."
+                            ? "Network overview"
                             : page === "Applications"
-                              ? "Know what your apps are doing."
+                              ? "Application traffic"
                               : page === "Destinations"
-                                ? "Follow your traffic."
+                                ? "Destination registry"
                                 : page === "Locations"
-                                  ? "See where connections go."
-                                  : "Under the hood, in plain sight."}
+                                  ? "Location telemetry"
+                                  : "Connection matrix"}
                 </h1>
                 <p>
                   {page === "Network rules"
@@ -656,7 +702,7 @@ function App() {
                         : page === "Traffic profile"
                           ? "Learn recurring apps, destinations, and services from the history saved on this computer."
                           : page === "Overview"
-                            ? "See what’s coming in, what’s going out, and where it’s all headed."
+                            ? "Live transfer rates, application activity, and connection telemetry."
                             : page === "Locations"
                               ? "Explore approximate IP locations. VPNs, proxies, and anycast can affect results."
                               : "Explore live network activity and inspect the connections behind it."}
@@ -819,7 +865,8 @@ function App() {
                     <div className="card-heading">
                       <div>
                         <h2>
-                          Traffic pulse{" "}
+                          <span className="panel-code">01</span> Transfer
+                          telemetry{" "}
                           <span className="live-label">
                             <i />
                             {paused ? "PAUSED" : "LIVE"}
@@ -885,8 +932,11 @@ function App() {
                   <div className="card reach-card">
                     <div className="card-heading">
                       <div>
-                        <h2>Beyond your device</h2>
-                        <p>Where active connections lead</p>
+                        <h2>
+                          <span className="panel-code">02</span> Location
+                          resolver
+                        </h2>
+                        <p>Remote destination geography</p>
                       </div>
                       <Globe2 size={19} />
                     </div>
@@ -897,9 +947,11 @@ function App() {
                       <div className="orbit-core">
                         <Globe2 size={43} />
                       </div>
-                      <i className="orbit-node n1" />
-                      <i className="orbit-node n2" />
-                      <i className="orbit-node n3" />
+                    </div>
+                    <div className="radar-caption">
+                      {data.locationsEnabled
+                        ? "LOOKUP ENABLED"
+                        : "RESOLVER STANDBY"}
                     </div>
                     {data.locationsEnabled ? (
                       <>
@@ -936,9 +988,9 @@ function App() {
                       </>
                     ) : (
                       <>
-                        <h3>Your traffic has a destination.</h3>
+                        <h3>Location lookup disabled</h3>
                         <p>
-                          Reveal approximate countries, cities,
+                          Resolve approximate countries, cities,
                           <br />
                           and network owners.
                         </p>
@@ -965,7 +1017,10 @@ function App() {
                   <div className="card-heading">
                     <div>
                       <h2>
-                        {page === "Overview" ? "Your network, organized" : page}{" "}
+                        <span className="panel-code">
+                          {page === "Overview" ? "03" : "DATA"}
+                        </span>
+                        {page === "Overview" ? "Connection registry" : page}{" "}
                         <span className="count-pill">{groups.length}</span>
                       </h2>
                       <p>Click a row to explore its connections.</p>
@@ -1323,8 +1378,8 @@ function App() {
                   <X size={20} />
                 </button>
               </div>
-              <h2>Make yourself at home.</h2>
-              <p>Choose how Watchmen observes your network.</p>
+              <h2>System configuration</h2>
+              <p>Appearance, updates, credentials, and capture preferences.</p>
               <div className="appearance-setting">
                 <strong>Appearance</strong>
                 <div className="theme-switch">
@@ -1497,8 +1552,8 @@ function TrafficChart({
         >
           <defs>
             <linearGradient id="rxFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#8160df" stopOpacity=".24" />
-              <stop offset="100%" stopColor="#8160df" stopOpacity=".01" />
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity=".2" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity=".01" />
             </linearGradient>
           </defs>
           {[0, 0.5, 1].map((y) => (
@@ -1516,14 +1571,14 @@ function TrafficChart({
           <path
             d={line("rx")}
             fill="none"
-            stroke="#8061d9"
+            stroke="var(--accent)"
             strokeWidth="2.5"
             vectorEffect="non-scaling-stroke"
           />
           <path
             d={line("tx")}
             fill="none"
-            stroke="#3da69d"
+            stroke="var(--success)"
             strokeWidth="2"
             vectorEffect="non-scaling-stroke"
           />

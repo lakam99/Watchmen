@@ -37,8 +37,8 @@
   padding: 7px 9px;
 }
 .region-shortcuts .selected {
-  border-color: #9270cf;
-  background: #9270cf22;
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
 }
 .country-rule-picker {
   max-height: 180px;
@@ -61,7 +61,7 @@
 }
 .country-rule-picker input,
 .policy-dialog input {
-  accent-color: #9362d6;
+  accent-color: var(--accent);
 }
 .row-rule-actions {
   display: flex;
@@ -75,32 +75,32 @@
   min-height: 29px;
 }
 .row-rule-actions .is-blocked {
-  color: #c3843d;
-  border-color: #c3843d66;
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--line) 40%, transparent);
 }
 .only-app-button {
   padding: 5px;
 }
 .button.danger {
-  background: #a64f3b;
-  color: #fff;
-  border-color: #a64f3b;
+  background: var(--warning);
+  color: var(--text-muted);
+  border-color: var(--line);
 }
 .button.danger:hover:not(:disabled) {
-  background: #893f2f;
+  background: var(--warning);
 }
 .rule-state {
   font-size: 10px;
   display: inline-block;
-  border: 1px solid #87968f66;
+  border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
   border-radius: 5px;
   padding: 5px 8px;
-  color: #688777;
+  color: var(--text-primary);
 }
 .rule-state.blocked {
-  color: #bd753a;
-  border-color: #bd753a66;
-  background: #bd753a11;
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--line) 40%, transparent);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
 }
 .network-rules-view table td {
   vertical-align: top;
@@ -129,7 +129,7 @@
 .policy-backdrop {
   position: fixed;
   inset: 0;
-  background: #080b14a8;
+  background: color-mix(in srgb, var(--canvas) 66%, transparent);
   z-index: 110;
   display: flex;
   align-items: center;
@@ -141,7 +141,7 @@
   width: 670px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 25px 90px #0007;
+  box-shadow: none;
 }
 .policy-dialog .card-heading {
   align-items: start;
@@ -165,7 +165,7 @@
   grid-template-columns: 110px 1fr;
   gap: 14px 18px;
   padding: 18px;
-  background: #9270cf0c;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-bottom: 20px;
@@ -184,10 +184,10 @@
 }
 .policy-impact.severe {
   padding: 16px;
-  border: 1px solid #c4864566;
-  background: #c4864511;
+  border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
   border-radius: 7px;
-  color: #a76e39;
+  color: var(--warning);
 }
 .policy-dialog-actions {
   display: flex;
@@ -206,22 +206,22 @@
   gap: 12px;
   max-width: 700px;
   padding: 14px 20px;
-  border: 1px solid #9270cf66;
+  border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
   border-radius: 10px;
-  background: var(--surface, #fff);
-  box-shadow: 0 7px 35px #0003;
+  background: var(--surface);
+  box-shadow: none;
   font-size: 12px;
 }
 .policy-toast.error {
-  border-color: #a64f3b;
-  color: #a64f3b;
+  border-color: var(--line);
+  color: var(--warning);
 }
 .isolation-banner {
-  border-color: #c4864577;
-  background: #c4864510;
+  border-color: color-mix(in srgb, var(--line) 47%, transparent);
+  background: color-mix(in srgb, var(--warning) 6%, transparent);
 }
 .isolation-banner strong {
-  color: #bd8240;
+  color: var(--warning);
 }
 .isolation-banner > span {
   flex: 1;
@@ -230,24 +230,24 @@
   white-space: nowrap;
 }
 html[data-theme="dark"] .policy-dialog {
-  background: #1c1d29;
+  background: var(--surface);
 }
 html[data-theme="dark"] .policy-toast {
-  background: #222230;
-  color: #dbd5e6;
+  background: var(--surface);
+  color: var(--text-primary);
 }
 html[data-theme="dark"] .network-rules-view select {
-  background: #282333;
-  color: #dbd5e6;
-  border: 1px solid #584565;
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--line);
   padding: 9px;
   border-radius: 6px;
 }
 html[data-theme="dark"] .rule-state.blocked {
-  color: #e2ac70;
+  color: var(--warning);
 }
 html[data-theme="dark"] .policy-impact.severe {
-  color: #deb17e;
+  color: var(--warning);
 }
 @media (max-width: 1150px) {
   .rule-create-grid {
@@ -273,7 +273,7 @@ html[data-theme="dark"] .policy-impact.severe {
   width: min(410px, calc(100vw - 48px));
   z-index: 1100;
   padding: 18px;
-  box-shadow: 0 12px 45px #0005;
+  box-shadow: none;
   border: 1px solid var(--border);
 }
 .policy-task-heading,
@@ -298,7 +298,7 @@ html[data-theme="dark"] .policy-impact.severe {
 .policy-progress progress {
   width: 100%;
   height: 12px;
-  accent-color: var(--accent, #9178ef);
+  accent-color: var(--accent);
 }
 .policy-progress small {
   display: block;
@@ -306,7 +306,7 @@ html[data-theme="dark"] .policy-impact.severe {
   line-height: 1.5;
 }
 .policy-progress .policy-stall {
-  color: var(--amber, #c89840);
+  color: var(--amber, var(--warning));
 }
 .policy-mode {
   display: grid;
@@ -316,7 +316,7 @@ html[data-theme="dark"] .policy-impact.severe {
 .policy-mode select {
   width: 100%;
   padding: 10px;
-  background: var(--surface, #fff);
+  background: var(--surface);
   color: inherit;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -330,6 +330,6 @@ html[data-theme="dark"] .policy-impact.severe {
 }
 
 html[data-theme="dark"] .policy-mode select {
-  background: #1c1d29;
-  color: #e5e3ee;
+  background: var(--surface);
+  color: var(--text-primary);
 }

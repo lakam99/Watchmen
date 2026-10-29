@@ -13,27 +13,27 @@
   padding: 9px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  background: #fff;
+  background: var(--surface);
   font-size: 11px;
-  color: #8d73a0;
+  color: var(--text-muted);
 }
 .profile-recording {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #9677b0;
+  color: var(--text-muted);
   font-size: 12px;
 }
 .profile-recording small {
   display: block;
   margin-top: 5px;
   font-size: 10px;
-  color: #a18daf;
+  color: var(--text-muted);
 }
 .profile-loading {
   padding: 25px;
   margin-bottom: 20px;
-  color: #9983a9;
+  color: var(--text-muted);
   font-size: 12px;
 }
 .profile-history-chart {
@@ -57,14 +57,14 @@
   min-width: 0;
 }
 .profile-bar {
-  background: linear-gradient(0deg, #b89cde, #926acd);
+  background: linear-gradient(0deg, var(--surface-tint), var(--accent));
   min-height: 2px;
   max-height: 120px;
   border-radius: 5px 5px 2px 2px;
 }
 .profile-bar-cell small {
   text-align: center;
-  color: #aa95b7;
+  color: var(--text-muted);
   font-size: 9px;
   padding-top: 9px;
   min-height: 25px;
@@ -77,8 +77,8 @@
 }
 .profile-tags > span {
   font-size: 10px;
-  color: #9d7db3;
-  background: #f7f2fc;
+  color: var(--text-muted);
+  background: var(--canvas);
   border-radius: 6px;
   padding: 6px 8px;
 }
@@ -86,7 +86,7 @@
   margin-left: 7px;
   font-size: 9px;
   font-weight: 500;
-  color: #b599c6;
+  color: var(--text-muted);
 }
 .profile-search {
   margin: 17px 21px;
@@ -103,18 +103,18 @@
 }
 .profile-list td {
   font-size: 11px;
-  color: #91729f;
+  color: var(--text-muted);
 }
 .profile-list td > strong {
   font-size: 12px;
   font-weight: 550;
-  color: #89629e;
+  color: var(--text-primary);
   overflow-wrap: anywhere;
 }
 .profile-list td > small {
   display: block;
   font-size: 10px;
-  color: #a389b1;
+  color: var(--text-muted);
   margin-top: 5px;
   max-width: 270px;
   text-overflow: ellipsis;
@@ -130,7 +130,7 @@
 }
 .profile-endpoints .nested-heading > small {
   font-size: 10px;
-  color: #a086b2;
+  color: var(--text-muted);
 }
 .profile-endpoints table {
   min-width: 830px;
@@ -149,7 +149,7 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  color: #a68eb5;
+  color: var(--text-muted);
   padding: 22px 4px 0;
 }
 .profile-storage > svg {
@@ -170,42 +170,42 @@
 .profile-storage p {
   font-size: 10px;
   line-height: 1.9;
-  color: #ad96bc;
+  color: var(--text-muted);
   margin: 5px 0 0;
 }
 html[data-theme="dark"] .profile-toolbar select {
-  background: #282331;
-  color: #b899ce;
-  border-color: #493452;
+  background: var(--surface);
+  color: var(--text-muted);
+  border-color: var(--line);
 }
 html[data-theme="dark"] .profile-recording {
-  color: #c3a1db;
+  color: var(--text-muted);
 }
 html[data-theme="dark"] .profile-recording small {
-  color: #a68fb7;
+  color: var(--text-muted);
 }
 html[data-theme="dark"] .profile-list td,
 html[data-theme="dark"] .profile-list td > small {
-  color: #b798ca;
+  color: var(--text-muted);
 }
 html[data-theme="dark"] .profile-list td > strong {
-  color: #d0a9ea;
+  color: var(--text-primary);
 }
 html[data-theme="dark"] .profile-tags > span {
-  background: #33233f;
-  color: #c9a0e2;
+  background: var(--surface-tint);
+  color: var(--text-muted);
 }
 html[data-theme="dark"] .profile-tags b {
-  color: #a580ba;
+  color: var(--text-muted);
 }
 html[data-theme="dark"] .profile-bar {
-  background: linear-gradient(0deg, #775297, #ba89dd);
+  background: linear-gradient(0deg, var(--surface-tint), var(--accent));
 }
 html[data-theme="dark"] .profile-storage {
-  color: #b692cc;
+  color: var(--text-muted);
 }
 html[data-theme="dark"] .profile-storage p {
-  color: #a88bb9;
+  color: var(--text-muted);
 }
 @media (max-width: 1200px) {
   .profile-toolbar {

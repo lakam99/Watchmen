@@ -1,9 +1,9 @@
 ## Changes
 
-- Store appearance, AI configuration, updater preferences, monitor filters/grouping and window size in the local traffic SQLite database. Existing JSON settings import once and remain preserved as legacy backups. API tokens retain Windows encryption in their separate file.
-- Group connection-change notices by application and change type. Repeated observations no longer grow the badge, inactive notices leave the open count after 24 hours, and temporary remote ports no longer create service notices. Original evidence and history remain available, with a Mark all reviewed control.
-- Add verified background downloads from GitHub Releases and a guarded Install & restart action. Pushed changes now build and publish a fresh Windows release automatically.
+- Rework Watchmen as a spaceship-style network terminal: graphite instrument panels, cyan telemetry, amber warnings, numbered navigation, square controls, and monospaced labels and measurements.
+- Replace promotional headings with direct operational labels. Add a collector status strip showing the acquisition mode, active socket count, last sample time and local database availability from actual monitoring state.
+- Apply a shared terminal palette across tables, connection inspectors, profiles, Changes, packet inspection, network rules and settings. Retain dark/light/system appearance, visible keyboard focus, reduced-motion support, and compact layouts down to the existing 1,000-pixel minimum width.
 
 ## Known limits
 
-Large geographic filter sets can still hit Windows resource limits (`0x000005AA`). This release improves diagnostics but does not resolve that backend capacity issue. Windows installer binaries are not Authenticode-signed; download integrity is checked against the GitHub release feed.
+Large geographic filter sets can still hit Windows resource limits (`0x000005AA`); this visual update does not resolve that backend capacity issue. Windows installer binaries are not Authenticode-signed; download integrity is checked against the GitHub release feed. Settings, traffic profiles, credentials, and saved network rules retain their existing storage and behavior.

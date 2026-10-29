@@ -1,6 +1,15 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.8.0/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.9.0/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.9 validation
+
+- Reworks the interface as a terminal GUI with a shared graphite/cyan instrument palette, semantic warning/error colors, numbered navigation, monospaced labels and square controls. Light mode uses a silver/teal palette; saved appearance preferences remain honored. The new collector strip uses actual snapshot state; its acquisition mode, active sockets, sample time and database status are not decorative readings.
+- The source and packaged UI checks navigate every section, expand inline connection tables, open/dismiss the connection inspector, use appearance settings, and pause/resume. Dark/light screenshots were inspected at 1,600-pixel and 1,000-pixel widths, with no horizontal page overflow. Screenshot fixtures use synthetic applications and documentation IP ranges; no user traffic was exported for previews. Minimum-height navigation keeps Settings accessible.
+- All 63 unit tests pass. Packaged feature, settings/Changes and updater checks pass, retaining encrypted credential save/restart/decryption, local settings persistence, grouped notices, and real updater rejection of a corrupt download. AI inference and installer handoff are simulated; no global firewall policy was applied.
+- Application logic and native filtering are retained. Existing geographic-filter capacity and protected-folder access limitations remain as documented below. GitHub builds and audits the final installer and portable ZIP before publishing this version.
+
+Evidence: `test-results/terminal-ui-packaged.json`, `terminal-overview-dark.png`, `terminal-overview-light.png`, `terminal-inspector-dark.png`, `terminal-settings-dark.png`, `terminal-narrow-light.png`, and the packaged feature/settings/updater check reports. Preview fixtures are only injected by an ignored verification script and are not bundled with the app.
 
 ## Version 0.8 validation
 

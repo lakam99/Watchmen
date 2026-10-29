@@ -255,7 +255,8 @@ export function AIInsights({
       <div className="card-heading">
         <div>
           <h2>
-            <Sparkles size={18} />A second look at your network
+            <Sparkles size={18} />
+            AI traffic analysis
           </h2>
           <p>
             {title} · {flows.length} filtered connections

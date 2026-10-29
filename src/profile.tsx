@@ -339,7 +339,7 @@ export function TrafficProfile() {
       <section className="card profile-list">
         <div className="card-heading">
           <div>
-            <h2>What your network remembers</h2>
+            <h2>Stored observations</h2>
             <p>
               App identities, recurring services, destinations, and first/last
               observations.

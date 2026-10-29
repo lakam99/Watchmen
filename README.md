@@ -1,10 +1,10 @@
 # Watchmen
 
-A local-first Windows desktop network monitor, built with Electron, React, and a native .NET collector. This is an independent app, with no affiliation to Proton.
+A local-first Windows desktop network monitor with a spaceship terminal interface, built with Electron, React, and a native .NET collector. This is an independent app, with no affiliation to Proton.
 
 ## Run the desktop app
 
-Open `release/0.8.0/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
+Open `release/0.9.0/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
 
 The standard mode reads live TCP connections, UDP listening sockets, process ownership, and incoming/outgoing network-interface rates. Use **Enable detailed capture** to relaunch with Windows administrator approval and enable per-process TCP/UDP byte counts. Canceling UAC leaves standard monitoring available.
 
