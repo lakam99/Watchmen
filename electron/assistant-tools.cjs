@@ -520,9 +520,26 @@ class AssistantTools {
           );
         result = await this.firewall.toggle(p.target.id, false);
       }
+      const target = (Array.isArray(result.rules) ? result.rules : []).find(
+        (r) =>
+          p.operation === "unblock"
+            ? r.id === p.target.id
+            : r.kind === p.target.kind &&
+              identity({ processPath: r.appPath }) ===
+                identity({ processPath: p.target.appPath }) &&
+              (r.address || "") === (p.target.address || "") &&
+              (r.protocol || "") === (p.target.protocol || "") &&
+              (r.port || 0) === (p.target.port || 0),
+      );
+      const confirmed =
+        result.isolationVerified === true &&
+        !!target &&
+        (p.operation === "unblock"
+          ? target.enabled === false
+          : target.enabled === true && target.partial === false);
       p.status = result.error
         ? "failed"
-        : result.isolationVerified === true
+        : confirmed
           ? "completed"
           : "needs_verification";
       p.result = result.error
@@ -531,7 +548,7 @@ class AssistantTools {
           ? p.operation === "block"
             ? "Windows committed and verified the block."
             : "Windows disabled and verified this rule. Other rules may still block the target."
-          : "The change was committed but enforcement verification is unavailable. Refresh Network rules.";
+          : "Windows returned a response, but the requested target state is not confirmed. Refresh Network rules.";
     } catch (e) {
       p.status = "failed";
       p.result = clean(e.message, 300);

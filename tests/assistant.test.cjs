@@ -52,6 +52,7 @@ function fixture({
   rules = [],
   admin = true,
   verified = true,
+  partial = false,
 } = {}) {
   let now = Date.now();
   const snapshot = {
@@ -96,7 +97,7 @@ function fixture({
           ...request.rule,
           id: randomUUID(),
           enabled: true,
-          partial: false,
+          partial,
           createdAt: new Date(now).toISOString(),
         });
       if (request.action === "set-enabled")
@@ -347,7 +348,14 @@ test("administrator gating, review expiry, rejection, and unverified enforcement
     false,
   );
   assert.equal(result.proposals[0].status, "needs_verification");
-  assert.match(result.proposals[0].result, /verification is unavailable/);
+  assert.match(result.proposals[0].result, /not confirmed/);
+  const p = fixture({ partial: true });
+  await prepareBlock(p);
+  const partialResult = await p.manager.approve(
+    p.manager.status().proposals[0].id,
+    false,
+  );
+  assert.equal(partialResult.proposals[0].status, "needs_verification");
 });
 test("broad saved-rule disables require an explicit local acknowledgement", async () => {
   const f = fixture({
