@@ -1,6 +1,14 @@
-# Watchmen verification — October 29, 2026
+# Watchmen verification — October 30, 2026
 
-The Windows x64 build is `release/0.10.8/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.9/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.9 validation
+
+- The bounded basic overview now leads with recognizable app/process purpose and likely network use, with explicit uncertainty for unknown or ambiguous names. Cited app research uses the same fixed-endpoint, stateless provider transport and bounded web tools as the console. OpenAI requires one completed search and valid annotations; sources follow the [official OpenAI documentation](https://developers.openai.com/api/docs/guides/tools-web-search). Only the validated name enters the isolated public query. Existing web permission enables automatic research; a separate one-time UI action searches without changing permission or repeating the row analysis. No local/action tools are offered.
+- All 136 unit tests pass. Eight new research tests cover both providers and request shapes; metadata/credential exclusion; automatic versus one-time consent; generic/path/address/instruction-like name rejection; absent citations/search or quota errors preserving the overview; scoped cancellation and late responses; provider/model changes and revoked automatic permission; custom endpoint/online-model refusal; private/credential-bearing source rejection, citation text normalization, redacted titles and source invalidation.
+- Packaged row checks pass across all 11 table types with both providers, including setup/keyboard/dark/light/narrow layouts, one-time research, persisted automatic permission, clickable validated source handling and arbitrary-URL rejection, failure/retry/cancellation, no private metadata in provider requests, and zero native mutations. The new panel and source citations were visually inspected. Existing packaged OpenAI and OpenRouter assistant regressions pass after the shared transport extraction. Provider replies, web results and native rules are simulated; no user token, paid inference or real policy mutation was used. Frontend and native collector builds pass.
+
+Evidence: `test-results/unit-row-research.txt`, `row-overview-smoke-packaged.json`, `row-overview-dark.png`, `row-overview-light.png`, and `assistant-smoke-openai-packaged.json` / `assistant-smoke-packaged.json`.
 
 ## Version 0.10.8 validation
 

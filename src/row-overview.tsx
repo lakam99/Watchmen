@@ -8,6 +8,17 @@ export type RowInfo = {
   label: string;
   facts: Record<string, string | number | boolean | null>;
 };
+export type AppResearch = {
+  app: string | null;
+  eligible: boolean;
+  supported: boolean;
+  status: string;
+  text?: string;
+  notice?: string;
+  researchedAt?: string;
+  sources: { url: string; title: string }[];
+};
+export type RowInsight = Insight & { research: AppResearch };
 export const rowAI = (
   kind: string,
   label: string,
@@ -30,7 +41,7 @@ export function RowOverviewUI() {
     id: string;
     row: RowInfo;
     busy: boolean;
-    result?: Insight;
+    result?: RowInsight;
     preferences?: PreferencesStatus;
     error?: string;
   } | null>(null);
@@ -173,6 +184,49 @@ export function RowOverviewUI() {
         });
     }
   }
+  async function researchApp() {
+    if (!panel?.result || panel.busy || !window.watchmen) return;
+    const previous = panel,
+      id = crypto.randomUUID();
+    active.current = id;
+    setPanel({ ...previous, id, busy: true, error: undefined });
+    try {
+      const r = await window.watchmen.rowOverviewResearch({
+        ...previous.row,
+        id,
+      });
+      if (active.current !== id) return;
+      setPanel({
+        ...previous,
+        id,
+        busy: false,
+        ...(r.ok
+          ? { result: { ...previous.result!, research: r.value.research } }
+          : { error: r.error }),
+      });
+    } catch {
+      if (active.current === id)
+        setPanel({
+          ...previous,
+          id,
+          busy: false,
+          error: "App research could not complete. Try again.",
+        });
+    }
+  }
+  async function openSource(url: string) {
+    const id = active.current;
+    try {
+      const r = await window.watchmen?.rowOverviewSource(url);
+      if (active.current === id && r && !r.ok)
+        setPanel((p) => (p ? { ...p, error: r.error } : p));
+    } catch {
+      if (active.current === id)
+        setPanel((p) =>
+          p ? { ...p, error: "The cited source could not be opened." } : p,
+        );
+    }
+  }
   return createPortal(
     <>
       {menu && (
@@ -225,12 +279,15 @@ export function RowOverviewUI() {
               <Shield size={15} />
               Read-only AI overview. Only bounded names, ports, status and
               counters are shared. Addresses, paths and packet contents are
-              excluded.
+              excluded. App research sends only the app name through your
+              provider's web search when enabled or requested below.
             </p>
             {panel.busy && (
               <p className="row-ai-loading" role="status">
                 <LoaderCircle size={16} className="spin" />
-                Explaining this row…
+                {panel.result
+                  ? "Researching app on web…"
+                  : "Explaining this row and application…"}
               </p>
             )}
             {panel.error && (
@@ -253,7 +310,89 @@ export function RowOverviewUI() {
               </div>
             )}
             {panel.result && (
-              <div className="row-ai-answer">{panel.result.text}</div>
+              <>
+                <div className="row-ai-answer">{panel.result.text}</div>
+                <section
+                  className="row-ai-research"
+                  aria-label="Application research"
+                >
+                  <h3>
+                    About the app
+                    {panel.result.research.app
+                      ? ` · ${panel.result.research.app}`
+                      : ""}
+                  </h3>
+                  {panel.result.research.status === "completed" ? (
+                    <>
+                      <p className="row-ai-answer">
+                        {panel.result.research.text}{" "}
+                        {panel.result.research.sources.map((s, i) => (
+                          <button
+                            key={s.url}
+                            className="row-ai-citation"
+                            title={s.title}
+                            aria-label={`Open source ${i + 1}: ${s.title}`}
+                            onClick={() => openSource(s.url)}
+                          >
+                            [{i + 1}]
+                          </button>
+                        ))}
+                      </p>
+                      <small>
+                        Web researched ·{" "}
+                        {panel.result.research.researchedAt
+                          ? new Date(
+                              panel.result.research.researchedAt,
+                            ).toLocaleString()
+                          : ""}
+                      </small>
+                      <ul>
+                        {panel.result.research.sources.map((s) => (
+                          <li key={s.url}>
+                            <button
+                              className="text-button"
+                              onClick={() => openSource(s.url)}
+                            >
+                              {s.title}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p>
+                      {panel.result.research.notice ||
+                        (panel.result.research.eligible
+                          ? panel.result.research.supported
+                            ? "The overview above uses model knowledge. Web research has not been performed."
+                            : "Use OpenAI or OpenRouter with its official endpoint for cited app research."
+                          : "No specific searchable app name is available in this row. The overview uses the supplied metadata.")}
+                    </p>
+                  )}
+                  {panel.result.research.eligible &&
+                    panel.result.research.supported &&
+                    panel.result.research.status !== "completed" && (
+                      <>
+                        <button
+                          className="button"
+                          disabled={panel.busy}
+                          onClick={researchApp}
+                        >
+                          Research app on web
+                        </button>
+                        <p className="row-ai-disclosure">
+                          Searches only this app name once. Provider search
+                          charges may apply. Your saved web permission is
+                          unchanged.
+                        </p>
+                      </>
+                    )}
+                  <p className="row-ai-disclosure">
+                    A name match does not verify the publisher, signature or
+                    safety of this local executable.
+                  </p>
+                </section>
+              </>
             )}
             <footer>
               {panel.result

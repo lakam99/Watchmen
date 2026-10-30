@@ -107,3 +107,32 @@
   display: block;
   margin-top: 7px;
 }
+.row-ai-research {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  overflow-wrap: anywhere;
+}
+.row-ai-research h3 {
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+.row-ai-research p {
+  line-height: 1.7;
+}
+.row-ai-research small {
+  color: var(--muted);
+}
+.row-ai-research ul {
+  padding-left: 18px;
+}
+.row-ai-research li {
+  margin: 6px 0;
+}
+.row-ai-citation {
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0 3px;
+  text-decoration: underline;
+}

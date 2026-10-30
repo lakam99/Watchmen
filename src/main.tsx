@@ -86,7 +86,13 @@ import {
   type AIConfig,
 } from "./ai";
 import { UpdateBanner, UpdateSettings, type UpdateState } from "./updates";
-import { RowOverviewUI, rowAI, type RowInfo } from "./row-overview";
+import {
+  RowOverviewUI,
+  rowAI,
+  type RowInfo,
+  type RowInsight,
+  type AppResearch,
+} from "./row-overview";
 declare global {
   interface Window {
     watchmen?: {
@@ -163,7 +169,11 @@ declare global {
       preferences: () => Promise<Result<PreferencesStatus>>;
       rowOverview: (
         input: RowInfo & { id: string },
-      ) => Promise<Result<Insight>>;
+      ) => Promise<Result<RowInsight>>;
+      rowOverviewResearch: (
+        input: RowInfo & { id: string },
+      ) => Promise<Result<{ research: AppResearch }>>;
+      rowOverviewSource: (url: string) => Promise<Result<boolean>>;
       rowOverviewCancel: (id: string) => Promise<Result<boolean>>;
       setTheme: (
         theme: "system" | "light" | "dark",

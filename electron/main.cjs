@@ -306,6 +306,13 @@ safeHandle("ai-remove", () => {
 });
 safeHandle("assistant-status", () => assistant.status());
 safeHandle("row-overview", (input) => rowOverview.explain(input));
+safeHandle("row-overview-research", (input) => rowOverview.researchApp(input));
+safeHandle("row-overview-source", async (url) => {
+  if (typeof url !== "string" || !rowOverview.hasSource(url))
+    throw new Error("Open a cited source from the current app research.");
+  await shell.openExternal(url);
+  return true;
+});
 safeHandle("row-overview-cancel", (id) => rowOverview.cancel(id));
 safeHandle("assistant-send", (text) => assistant.send(text));
 safeHandle("assistant-raise-limit", (id) => assistant.raiseLimit(id));
@@ -578,8 +585,10 @@ app.whenReady().then(async () => {
   insights = new Insights(preferences, (url, options) =>
     net.fetch(url, options),
   );
-  rowOverview = new RowOverview(preferences, (url, options) =>
-    net.fetch(url, options),
+  rowOverview = new RowOverview(
+    preferences,
+    (url, options) => net.fetch(url, options),
+    { webSearchAllowed: () => localSettings.get("assistant").webSearch },
   );
   assistant = new Assistant({
     preferences,
