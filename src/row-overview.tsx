@@ -16,9 +16,17 @@ export type AppResearch = {
   text?: string;
   notice?: string;
   researchedAt?: string;
+  cached?: boolean;
+  cacheSavedAt?: string;
+  provider?: string;
+  model?: string;
+  cacheNotice?: string;
   sources: { url: string; title: string }[];
 };
-export type RowInsight = Insight & { research: AppResearch };
+export type RowInsight = Insight & {
+  research: AppResearch;
+  overviewNotice?: string;
+};
 export const rowAI = (
   kind: string,
   label: string,
@@ -184,7 +192,7 @@ export function RowOverviewUI() {
         });
     }
   }
-  async function researchApp() {
+  async function researchApp(refresh = false) {
     if (!panel?.result || panel.busy || !window.watchmen) return;
     const previous = panel,
       id = crypto.randomUUID();
@@ -194,6 +202,7 @@ export function RowOverviewUI() {
       const r = await window.watchmen.rowOverviewResearch({
         ...previous.row,
         id,
+        refresh,
       });
       if (active.current !== id) return;
       setPanel({
@@ -312,6 +321,11 @@ export function RowOverviewUI() {
             {panel.result && (
               <>
                 <div className="row-ai-answer">{panel.result.text}</div>
+                {panel.result.overviewNotice && (
+                  <p className="inline-error" role="alert">
+                    {panel.result.overviewNotice}
+                  </p>
+                )}
                 <section
                   className="row-ai-research"
                   aria-label="Application research"
@@ -339,13 +353,23 @@ export function RowOverviewUI() {
                         ))}
                       </p>
                       <small>
-                        Web researched ·{" "}
+                        {panel.result.research.cached
+                          ? "Cached research"
+                          : "Web researched"}{" "}
+                        ·{" "}
                         {panel.result.research.researchedAt
                           ? new Date(
                               panel.result.research.researchedAt,
                             ).toLocaleString()
                           : ""}
                       </small>
+                      {panel.result.research.provider && (
+                        <small>
+                          {" "}
+                          · {panel.result.research.provider} /{" "}
+                          {panel.result.research.model}
+                        </small>
+                      )}
                       <ul>
                         {panel.result.research.sources.map((s) => (
                           <li key={s.url}>
@@ -358,6 +382,29 @@ export function RowOverviewUI() {
                           </li>
                         ))}
                       </ul>
+                      {panel.result.research.notice && (
+                        <p className="inline-error" role="alert">
+                          {panel.result.research.notice}
+                        </p>
+                      )}
+                      {panel.result.research.cacheNotice && (
+                        <p className="inline-error" role="status">
+                          {panel.result.research.cacheNotice}
+                        </p>
+                      )}
+                      <button
+                        className="button"
+                        disabled={
+                          panel.busy || !panel.result.research.supported
+                        }
+                        onClick={() => researchApp(true)}
+                      >
+                        Refresh research
+                      </button>
+                      <p className="row-ai-disclosure">
+                        Saved findings are reused until refreshed. Refresh runs
+                        a new web search; provider charges may apply.
+                      </p>
                     </>
                   ) : (
                     <p>
@@ -376,7 +423,7 @@ export function RowOverviewUI() {
                         <button
                           className="button"
                           disabled={panel.busy}
-                          onClick={researchApp}
+                          onClick={() => researchApp()}
                         >
                           Research app on web
                         </button>

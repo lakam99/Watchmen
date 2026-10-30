@@ -20,20 +20,22 @@ const fs = require("node:fs/promises"),
     env = { ...process.env, WATCHMEN_WORKSPACE_DIR: workspace };
   delete env.ELECTRON_RUN_AS_NODE;
   const args = ["--user-data-dir=" + path.join(workspace, "chromium")];
-  const app = await electron.launch({
-    ...(packaged
-      ? {
-          executablePath: path.resolve(
-            "release",
-            require("../package.json").version,
-            "Watchmen-win32-x64/Watchmen.exe",
-          ),
-          args,
-        }
-      : { args: [process.cwd(), ...args] }),
-    env,
-    timeout: 60000,
-  });
+  const launch = () =>
+    electron.launch({
+      ...(packaged
+        ? {
+            executablePath: path.resolve(
+              "release",
+              require("../package.json").version,
+              "Watchmen-win32-x64/Watchmen.exe",
+            ),
+            args,
+          }
+        : { args: [process.cwd(), ...args] }),
+      env,
+      timeout: 60000,
+    });
+  let app = await launch();
   const errors = [],
     tested = new Set();
   try {
@@ -41,271 +43,324 @@ const fs = require("node:fs/promises"),
     page.on("pageerror", (e) => errors.push(e.message));
     await page.waitForFunction(() => window.watchmen);
     const snapshot = await page.evaluate(() => window.watchmen.getStatus());
-    await app.evaluate(
-      ({ app, ipcMain, BrowserWindow, net, shell }, snapshot) => {
-        const win = BrowserWindow.getAllWindows()[0],
-          send = win.webContents.send.bind(win.webContents),
-          now = Date.now();
-        const flow = {
-          id: "row-flow",
-          app: "Relay Browser",
-          processPath: "C:\\Fixture Apps\\RelayBrowser.exe",
-          pid: 9001,
-          remoteAddress: "198.51.100.44",
-          localAddress: "192.168.1.77",
-          remotePort: 443,
-          localPort: 50123,
-          protocol: "TCP",
-          state: "Established",
-          active: true,
-          received: 0,
-          sent: 0,
-          rxRate: 0,
-          txRate: 0,
-          firstSeen: new Date(now).toISOString(),
-          lastSeen: new Date(now).toISOString(),
-        };
-        const current = {
-          ...snapshot,
-          timestamp: new Date(now).toISOString(),
-          flows: [flow],
-          tracing: false,
-          admin: false,
-          locationsEnabled: true,
-          locations: {
-            [flow.remoteAddress]: {
-              country: "Canada",
-              code: "CA",
-              city: "Example city",
-              org: "Fixture network",
+    const installFixture = async (application, snapshot) =>
+      application.evaluate(
+        ({ app, ipcMain, BrowserWindow, net, shell }, snapshot) => {
+          const win = BrowserWindow.getAllWindows()[0],
+            send = win.webContents.send.bind(win.webContents),
+            now = Date.now();
+          const flow = {
+            id: "row-flow",
+            app: "Relay Browser",
+            processPath: "C:\\Fixture Apps\\RelayBrowser.exe",
+            pid: 9001,
+            remoteAddress: "198.51.100.44",
+            localAddress: "192.168.1.77",
+            remotePort: 443,
+            localPort: 50123,
+            protocol: "TCP",
+            state: "Established",
+            active: true,
+            received: 0,
+            sent: 0,
+            rxRate: 0,
+            txRate: 0,
+            firstSeen: new Date(now).toISOString(),
+            lastSeen: new Date(now).toISOString(),
+          };
+          const current = {
+            ...snapshot,
+            timestamp: new Date(now).toISOString(),
+            flows: [flow],
+            tracing: false,
+            admin: false,
+            locationsEnabled: true,
+            locations: {
+              [flow.remoteAddress]: {
+                country: "Canada",
+                code: "CA",
+                city: "Example city",
+                org: "Fixture network",
+              },
             },
-          },
-          alertCount: 1,
-        };
-        win.webContents.send = (channel, ...args) =>
-          send(channel, ...(channel === "snapshot" ? [current] : args));
-        ipcMain.removeHandler("status");
-        ipcMain.handle("status", () => current);
-        const profileApp = {
-          id: "profile-app",
-          name: flow.app,
-          path: flow.processPath,
-          firstSeen: now - 60000,
-          lastSeen: now,
-          received: 1000,
-          sent: 200,
-          observations: 4,
-          measuredMs: 2000,
-          observedMs: 60000,
-          sessions: 1,
-          destinations: 1,
-        };
-        const destination = {
-          address: flow.remoteAddress,
-          scope: "internet",
-          country: "Canada",
-          city: "Example city",
-          org: "Fixture network",
-          firstSeen: now - 60000,
-          lastSeen: now,
-          received: 1000,
-          sent: 200,
-          observations: 4,
-          measuredMs: 2000,
-          applications: 1,
-          services: 1,
-        };
-        const profile = {
-          databasePath: "Fixture traffic database",
-          schemaVersion: 1,
-          range: "all",
-          updatedAt: now,
-          firstSeen: now - 60000,
-          recording: true,
-          eventsLost: 0,
-          totals: {
-            applications: 1,
-            destinations: 1,
+            alertCount: 1,
+          };
+          win.webContents.send = (channel, ...args) =>
+            send(channel, ...(channel === "snapshot" ? [current] : args));
+          ipcMain.removeHandler("status");
+          ipcMain.handle("status", () => current);
+          const profileApp = {
+            id: "profile-app",
+            name: flow.app,
+            path: flow.processPath,
+            firstSeen: now - 60000,
+            lastSeen: now,
             received: 1000,
             sent: 200,
             observations: 4,
             measuredMs: 2000,
+            observedMs: 60000,
             sessions: 1,
-          },
-          applications: [profileApp],
-          destinations: [destination],
-          daily: [],
-          protocols: [{ protocol: "TCP", observations: 4, applications: 1 }],
-          countries: [{ country: "Canada", destinations: 1 }],
-        };
-        const change = {
-          id: "row-change",
-          type: "new_destination",
-          app_id: profileApp.id,
-          app_name: flow.app,
-          address: flow.remoteAddress,
-          severity: "notice",
-          observed_at: now,
-          last_seen: now,
-          occurrences: 1,
-          status: "open",
-          evidence: {
-            summary: "A new destination was observed.",
-            baseline: {},
-            observed: {},
-            note: "Fixture change",
-          },
-          explanation: null,
-        };
-        const packet = {
-          id: "row-packet",
-          timestamp: now,
-          protocol: "TCP",
-          source: flow.localAddress,
-          destination: flow.remoteAddress,
-          sourcePort: 50123,
-          destinationPort: 443,
-          direction: "outbound",
-          app: flow.app,
-          summary: "private-packet-summary",
-          length: 120,
-          capturedLength: 120,
-          truncated: false,
-          encrypted: true,
-          headers: [{ name: "Authorization", value: "private-header" }],
-          payloadText: "private-packet-content",
-        };
-        const rule = {
-          id: "row-rule",
-          kind: "app",
-          label: "Relay Browser",
-          appPath: flow.processPath,
-          address: "",
-          protocol: "",
-          port: 0,
-          countries: [],
-          sourceMonth: "",
-          rangeCount: 0,
-          nativeRuleCount: 2,
-          enabled: true,
-          partial: false,
-          createdAt: new Date(now).toISOString(),
-        };
-        const handlers = {
-          "traffic-profile": () => profile,
-          "traffic-profile-app": () => ({
-            application: profileApp,
-            endpoints: [
-              {
-                ...destination,
-                protocol: "TCP",
-                port: 443,
-                localServicePort: 0,
-              },
-            ],
-          }),
-          "alerts-list": () => ({
-            alerts: [change],
-            counts: { total: 1, open: 1, spikes: 0 },
-            learning: {
-              eligibleApps: 1,
-              minimumObservedMs: 60000,
-              minimumMeasuredMinutes: 5,
-            },
+            destinations: 1,
+          };
+          const destination = {
+            address: flow.remoteAddress,
+            scope: "internet",
+            country: "Canada",
+            city: "Example city",
+            org: "Fixture network",
+            firstSeen: now - 60000,
+            lastSeen: now,
+            received: 1000,
+            sent: 200,
+            observations: 4,
+            measuredMs: 2000,
+            applications: 1,
+            services: 1,
+          };
+          const profile = {
+            databasePath: "Fixture traffic database",
+            schemaVersion: 1,
+            range: "all",
             updatedAt: now,
-          }),
-          "packets-status": () => ({
-            active: false,
-            processing: false,
-            error: null,
-            source: "Fixture capture",
-            startedAt: now,
-            endsAt: null,
-            packets: [packet],
-            totalRecords: 1,
-            displayLimit: 100,
-            limited: false,
-          }),
-          "firewall-status": () => ({
-            rules: [rule],
-            admin: false,
-            profiles: [],
-            isolationVerified: true,
-            verificationError: null,
-            updatedAt: new Date(now).toISOString(),
-            error: null,
-            busy: false,
-            phase: "idle",
-          }),
-          "firewall-catalog": () => ({
+            firstSeen: now - 60000,
+            recording: true,
+            eventsLost: 0,
+            totals: {
+              applications: 1,
+              destinations: 1,
+              received: 1000,
+              sent: 200,
+              observations: 4,
+              measuredMs: 2000,
+              sessions: 1,
+            },
+            applications: [profileApp],
+            destinations: [destination],
+            daily: [],
+            protocols: [{ protocol: "TCP", observations: 4, applications: 1 }],
+            countries: [{ country: "Canada", destinations: 1 }],
+          };
+          const change = {
+            id: "row-change",
+            type: "new_destination",
+            app_id: profileApp.id,
+            app_name: flow.app,
+            address: flow.remoteAddress,
+            severity: "notice",
+            observed_at: now,
+            last_seen: now,
+            occurrences: 1,
+            status: "open",
+            evidence: {
+              summary: "A new destination was observed.",
+              baseline: {},
+              observed: {},
+              note: "Fixture change",
+            },
+            explanation: null,
+          };
+          const packet = {
+            id: "row-packet",
+            timestamp: now,
+            protocol: "TCP",
+            source: flow.localAddress,
+            destination: flow.remoteAddress,
+            sourcePort: 50123,
+            destinationPort: 443,
+            direction: "outbound",
+            app: flow.app,
+            summary: "private-packet-summary",
+            length: 120,
+            capturedLength: 120,
+            truncated: false,
+            encrypted: true,
+            headers: [{ name: "Authorization", value: "private-header" }],
+            payloadText: "private-packet-content",
+          };
+          const rule = {
+            id: "row-rule",
+            kind: "app",
+            label: "Relay Browser",
+            appPath: flow.processPath,
+            address: "",
+            protocol: "",
+            port: 0,
             countries: [],
-            regions: [],
-            attribution: "Fixture",
-            source: "Fixture",
-            month: "2026-10",
-          }),
-        };
-        for (const [name, handler] of Object.entries(handlers)) {
-          ipcMain.removeHandler(name);
-          ipcMain.handle(name, (event) => {
-            if (event.sender !== win.webContents)
-              throw new Error("Untrusted test sender");
-            return { ok: true, value: handler() };
-          });
-        }
-        global.__rowRequests = [];
-        global.__rowMutations = 0;
-        global.__rowMode = "normal";
-        global.__rowWebMode = "normal";
-        global.__rowOpened = [];
-        shell.openExternal = async (url) => {
-          global.__rowOpened.push(url);
-        };
-        for (const name of [
-          "firewall-apply",
-          "firewall-toggle",
-          "firewall-forget",
-          "firewall-unblock-all",
-        ]) {
-          ipcMain.removeHandler(name);
-          ipcMain.handle(name, () => {
-            global.__rowMutations++;
-            throw new Error("No native changes allowed in this check");
-          });
-        }
-        net.fetch = async (url, init) => {
-          if (
-            ![
-              "https://api.openai.com/v1/responses",
-              "https://openrouter.ai/api/v1/chat/completions",
-            ].includes(url)
-          )
-            throw new Error("Unexpected lookup endpoint");
-          const body = JSON.parse(init.body);
-          global.__rowRequests.push({ url, body });
-          const web = body.tools?.some((t) =>
-            ["web_search", "openrouter:web_search"].includes(t.type),
-          );
-          if (web) {
-            if (global.__rowWebMode === "slow")
+            sourceMonth: "",
+            rangeCount: 0,
+            nativeRuleCount: 2,
+            enabled: true,
+            partial: false,
+            createdAt: new Date(now).toISOString(),
+          };
+          const handlers = {
+            "traffic-profile": () => profile,
+            "traffic-profile-app": () => ({
+              application: profileApp,
+              endpoints: [
+                {
+                  ...destination,
+                  protocol: "TCP",
+                  port: 443,
+                  localServicePort: 0,
+                },
+              ],
+            }),
+            "alerts-list": () => ({
+              alerts: [change],
+              counts: { total: 1, open: 1, spikes: 0 },
+              learning: {
+                eligibleApps: 1,
+                minimumObservedMs: 60000,
+                minimumMeasuredMinutes: 5,
+              },
+              updatedAt: now,
+            }),
+            "packets-status": () => ({
+              active: false,
+              processing: false,
+              error: null,
+              source: "Fixture capture",
+              startedAt: now,
+              endsAt: null,
+              packets: [packet],
+              totalRecords: 1,
+              displayLimit: 100,
+              limited: false,
+            }),
+            "firewall-status": () => ({
+              rules: [rule],
+              admin: false,
+              profiles: [],
+              isolationVerified: true,
+              verificationError: null,
+              updatedAt: new Date(now).toISOString(),
+              error: null,
+              busy: false,
+              phase: "idle",
+            }),
+            "firewall-catalog": () => ({
+              countries: [],
+              regions: [],
+              attribution: "Fixture",
+              source: "Fixture",
+              month: "2026-10",
+            }),
+          };
+          for (const [name, handler] of Object.entries(handlers)) {
+            ipcMain.removeHandler(name);
+            ipcMain.handle(name, (event) => {
+              if (event.sender !== win.webContents)
+                throw new Error("Untrusted test sender");
+              return { ok: true, value: handler() };
+            });
+          }
+          global.__rowRequests = [];
+          global.__rowMutations = 0;
+          global.__rowMode = "normal";
+          global.__rowWebMode = "normal";
+          global.__rowOpened = [];
+          shell.openExternal = async (url) => {
+            global.__rowOpened.push(url);
+          };
+          for (const name of [
+            "firewall-apply",
+            "firewall-toggle",
+            "firewall-forget",
+            "firewall-unblock-all",
+          ]) {
+            ipcMain.removeHandler(name);
+            ipcMain.handle(name, () => {
+              global.__rowMutations++;
+              throw new Error("No native changes allowed in this check");
+            });
+          }
+          net.fetch = async (url, init) => {
+            if (
+              ![
+                "https://api.openai.com/v1/responses",
+                "https://openrouter.ai/api/v1/chat/completions",
+              ].includes(url)
+            )
+              throw new Error("Unexpected lookup endpoint");
+            const body = JSON.parse(init.body);
+            global.__rowRequests.push({ url, body });
+            const web = body.tools?.some((t) =>
+              ["web_search", "openrouter:web_search"].includes(t.type),
+            );
+            if (web) {
+              if (global.__rowWebMode === "slow")
+                return new Promise((_, reject) =>
+                  init.signal.addEventListener(
+                    "abort",
+                    () => {
+                      global.__rowWebAborted = true;
+                      reject(new Error("aborted"));
+                    },
+                    { once: true },
+                  ),
+                );
+              const text =
+                  "Relay Browser is a fixture browser application that commonly uses the network to load web pages. A name match does not verify the local executable.",
+                citation = {
+                  type: "url_citation",
+                  url: "https://example.com/relay-browser",
+                  title: "Fixture app documentation",
+                },
+                annotations =
+                  global.__rowWebMode === "missing" ? [] : [citation];
+              return new Response(
+                JSON.stringify(
+                  url.endsWith("/responses")
+                    ? {
+                        status: "completed",
+                        output: [
+                          {
+                            type: "web_search_call",
+                            status: "completed",
+                            action: { type: "search" },
+                          },
+                          {
+                            type: "message",
+                            role: "assistant",
+                            content: [
+                              { type: "output_text", text, annotations },
+                            ],
+                          },
+                        ],
+                      }
+                    : {
+                        choices: [
+                          {
+                            message: {
+                              role: "assistant",
+                              content: text,
+                              annotations: annotations.map((c) => ({
+                                type: "url_citation",
+                                url_citation: c,
+                              })),
+                            },
+                          },
+                        ],
+                      },
+                ),
+              );
+            }
+            if (global.__rowMode === "fail")
+              return new Response("do-not-echo-provider-error", {
+                status: 429,
+              });
+            if (global.__rowMode === "slow")
               return new Promise((_, reject) =>
                 init.signal.addEventListener(
                   "abort",
-                  () => {
-                    global.__rowWebAborted = true;
-                    reject(new Error("aborted"));
-                  },
+                  () => reject(new Error("aborted")),
                   { once: true },
                 ),
               );
-            const text =
-                "Relay Browser is a fixture browser application that commonly uses the network to load web pages. A name match does not verify the local executable.",
-              citation = {
-                type: "url_citation",
-                url: "https://example.com/relay-browser",
-                title: "Fixture app documentation",
-              },
-              annotations = global.__rowWebMode === "missing" ? [] : [citation];
+            const input = JSON.parse(body.input || body.messages[1].content);
+            const text = `This ${input.rowType.replaceAll("_", " ")} row summarizes observed network metadata. Verify that the activity matches the application's expected purpose; the metadata alone does not establish a threat.`;
             return new Response(
               JSON.stringify(
                 url.endsWith("/responses")
@@ -313,66 +368,20 @@ const fs = require("node:fs/promises"),
                       status: "completed",
                       output: [
                         {
-                          type: "web_search_call",
-                          status: "completed",
-                          action: { type: "search" },
-                        },
-                        {
                           type: "message",
-                          role: "assistant",
-                          content: [{ type: "output_text", text, annotations }],
+                          content: [{ type: "output_text", text }],
                         },
                       ],
                     }
-                  : {
-                      choices: [
-                        {
-                          message: {
-                            role: "assistant",
-                            content: text,
-                            annotations: annotations.map((c) => ({
-                              type: "url_citation",
-                              url_citation: c,
-                            })),
-                          },
-                        },
-                      ],
-                    },
+                  : { choices: [{ message: { content: text } }] },
               ),
             );
-          }
-          if (global.__rowMode === "fail")
-            return new Response("do-not-echo-provider-error", { status: 429 });
-          if (global.__rowMode === "slow")
-            return new Promise((_, reject) =>
-              init.signal.addEventListener(
-                "abort",
-                () => reject(new Error("aborted")),
-                { once: true },
-              ),
-            );
-          const input = JSON.parse(body.input || body.messages[1].content);
-          const text = `This ${input.rowType.replaceAll("_", " ")} row summarizes observed network metadata. Verify that the activity matches the application's expected purpose; the metadata alone does not establish a threat.`;
-          return new Response(
-            JSON.stringify(
-              url.endsWith("/responses")
-                ? {
-                    status: "completed",
-                    output: [
-                      {
-                        type: "message",
-                        content: [{ type: "output_text", text }],
-                      },
-                    ],
-                  }
-                : { choices: [{ message: { content: text } }] },
-            ),
-          );
-        };
-        send("snapshot", current);
-      },
-      snapshot,
-    );
+          };
+          send("snapshot", current);
+        },
+        snapshot,
+      );
+    await installFixture(app, snapshot);
     const nav = page.getByRole("navigation"),
       dialog = page.getByRole("dialog", { name: "What is this?", exact: true });
     await nav
@@ -426,7 +435,7 @@ const fs = require("node:fs/promises"),
       await page
         .getByRole("menuitem", { name: "What is this?", exact: true })
         .click();
-      await dialog.locator(".row-ai-answer").waitFor();
+      await dialog.locator(".row-ai-answer").first().waitFor();
       assert.ok(
         (await dialog.locator(".row-ai-answer").innerText()).includes(
           kind.replaceAll("_", " "),
@@ -501,7 +510,7 @@ const fs = require("node:fs/promises"),
     assert.equal(await page.getByRole("menu").count(), 0);
     await row.click({ button: "right" });
     await page.getByRole("menuitem", { name: "What is this?" }).click();
-    await dialog.locator(".row-ai-answer").waitFor();
+    await dialog.locator(".row-ai-answer").first().waitFor();
     const beforeResearch = await app.evaluate(
       () => global.__rowRequests.length,
     );
@@ -526,6 +535,29 @@ const fs = require("node:fs/promises"),
       window.watchmen.rowOverviewSource("https://arbitrary.example/"),
     );
     assert.equal(arbitrary.ok, false);
+    await page.keyboard.press("Escape");
+    const cachedWebCalls = await app.evaluate(
+      () =>
+        global.__rowRequests.filter((r) =>
+          r.body.tools?.some((t) =>
+            ["web_search", "openrouter:web_search"].includes(t.type),
+          ),
+        ).length,
+    );
+    await row.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "What is this?" }).click();
+    await dialog.getByText(/Cached research/).waitFor();
+    assert.equal(
+      await app.evaluate(
+        () =>
+          global.__rowRequests.filter((r) =>
+            r.body.tools?.some((t) =>
+              ["web_search", "openrouter:web_search"].includes(t.type),
+            ),
+          ).length,
+      ),
+      cachedWebCalls,
+    );
     await page.screenshot({ path: "test-results/row-overview-dark.png" });
     await dialog.getByRole("button", { name: "Close row overview" }).click();
     await app.evaluate(() => {
@@ -554,16 +586,16 @@ const fs = require("node:fs/promises"),
     // A failed isolated search keeps the original row explanation and remains retryable.
     await row.click({ button: "right" });
     await page.getByRole("menuitem", { name: "What is this?" }).click();
-    await dialog.locator(".row-ai-answer").waitFor();
+    await dialog.locator(".row-ai-answer").first().waitFor();
     await app.evaluate(() => (global.__rowWebMode = "missing"));
     await dialog
-      .getByRole("button", { name: "Research app on web", exact: true })
+      .getByRole("button", { name: "Refresh research", exact: true })
       .click();
     await dialog.getByText(/no verifiable sources/).waitFor();
-    assert.ok(await dialog.locator(".row-ai-answer").isVisible());
+    assert.ok(await dialog.locator(".row-ai-answer").first().isVisible());
     await app.evaluate(() => (global.__rowWebMode = "slow"));
     await dialog
-      .getByRole("button", { name: "Research app on web", exact: true })
+      .getByRole("button", { name: "Refresh research", exact: true })
       .click();
     await dialog
       .getByText("Researching app on web…", { exact: true })
@@ -590,9 +622,9 @@ const fs = require("node:fs/promises"),
     await page.setViewportSize({ width: 1000, height: 720 });
     await row.click({ button: "right" });
     await page.getByRole("menuitem", { name: "What is this?" }).click();
-    await dialog.locator(".row-ai-answer").waitFor();
+    await dialog.locator(".row-ai-answer").first().waitFor();
     await dialog
-      .getByRole("button", { name: "Research app on web", exact: true })
+      .getByRole("button", { name: "Refresh research", exact: true })
       .click();
     await dialog.getByText(/Web researched/).waitFor();
     assert.equal(
@@ -610,10 +642,10 @@ const fs = require("node:fs/promises"),
     const beforeAuto = await app.evaluate(() => global.__rowRequests.length);
     await row.click({ button: "right" });
     await page.getByRole("menuitem", { name: "What is this?" }).click();
-    await dialog.getByText(/Web researched/).waitFor();
+    await dialog.getByText(/Cached research/).waitFor();
     assert.equal(
       await app.evaluate(() => global.__rowRequests.length),
-      beforeAuto + 2,
+      beforeAuto + 1,
     );
     await page.keyboard.press("Escape");
     await page.evaluate(() =>
@@ -637,6 +669,33 @@ const fs = require("node:fs/promises"),
     assert.equal(captured.mutations, 0);
     assert.equal(tested.size, 11);
     assert.deepEqual(errors, []);
+    await app.close();
+    app = await launch();
+    const restartPage = await app.firstWindow();
+    restartPage.on("pageerror", (e) => errors.push(e.message));
+    await restartPage.waitForFunction(() => window.watchmen);
+    await installFixture(app, snapshot);
+    await restartPage
+      .getByRole("navigation")
+      .getByRole("button", { name: "Applications", exact: true })
+      .click();
+    await restartPage
+      .locator("tr[data-ai-row]")
+      .first()
+      .click({ button: "right" });
+    await restartPage.getByRole("menuitem", { name: "What is this?" }).click();
+    const restartDialog = restartPage.getByRole("dialog", {
+      name: "What is this?",
+      exact: true,
+    });
+    await restartDialog.getByText(/Cached research/).waitFor();
+    assert.equal(await app.evaluate(() => global.__rowRequests.length), 1);
+    await restartDialog
+      .getByRole("button", { name: "Refresh research", exact: true })
+      .click();
+    await restartDialog.getByText(/Web researched/).waitFor();
+    assert.equal(await app.evaluate(() => global.__rowRequests.length), 2);
+    assert.deepEqual(errors, []);
     const result = {
       passed: true,
       packaged,
@@ -652,7 +711,10 @@ const fs = require("node:fs/promises"),
         "bounded private-data exclusion",
         "read-only provider requests",
         "app context plus one-time cited research with both providers",
-        "existing web opt-in enables automatic app research",
+        "cached findings are reused even with automatic web permission enabled",
+        "database cache survives app restart without a new web lookup",
+        "explicit refresh performs one new lookup and restores citations",
+        "failed refresh retains prior saved findings",
         "app-name-only query without row metadata or packet data",
         "validated citation opening rejects arbitrary URLs",
         "research failure preserves overview; cancellation aborts web request",

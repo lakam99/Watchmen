@@ -1,6 +1,14 @@
 # Watchmen verification — October 30, 2026
 
-The Windows x64 build is `release/0.10.9/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.10/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.10 validation
+
+- Successful app research is stored in an additive, independently versioned table in the existing traffic.sqlite. Records contain only normalized public app-name research, bounded text/citations, original collection/save dates and provider/model. Reads revalidate stored data and source URLs. Case and a trailing .exe share name-based findings, and instances/providers reuse the same database records. Retention is bounded to 500 recently used apps; refresh is explicit rather than expiry-triggered. No traffic/profile schema version or credential storage was changed.
+- All 144 unit tests pass. Eight new cache tests cover reopening and cross-instance visibility in the real SQLite database, traffic-store coexistence, private-field/credential exclusion, invalid/future schemas and records, bounded retention, cross-row/provider reuse with web permission off/on, explicit refresh and source replacement, failed/cancelled refresh preservation (including cancellation at the final async context check), live-provider outage fallback, invalid refresh arguments and nonfatal database write failures. Persistence occurs only after final context/cancellation validation.
+- The packaged row workflow passes across all 11 table types and both providers, including a complete process restart: saved research is shown with no new web request, Refresh research makes exactly one new lookup, cached citations remain accessible, and failed refresh retains old findings. Existing privacy, setup, keyboard, dark/light/narrow, failure and cancellation checks pass with no native mutations or renderer errors. The cached panel was visually inspected. Provider replies/web results are simulated; no real user token, paid search or policy mutation was used. Frontend and native builds pass.
+
+Evidence: `test-results/unit-research-cache.txt`, `row-overview-smoke-packaged.json`, and `row-overview-dark.png` / `row-overview-light.png`.
 
 ## Version 0.10.9 validation
 

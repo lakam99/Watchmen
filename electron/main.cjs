@@ -27,6 +27,7 @@ const { isPublicIP } = require("./network.cjs");
 const { Preferences } = require("./preferences.cjs");
 const { Insights } = require("./insights.cjs");
 const { RowOverview } = require("./row-overview.cjs");
+const { AppResearchCache } = require("./app-research-cache.cjs");
 const { TrafficStore } = require("./traffic-store.cjs");
 const { Packets } = require("./packets.cjs");
 const { Firewall } = require("./firewall.cjs");
@@ -588,7 +589,10 @@ app.whenReady().then(async () => {
   rowOverview = new RowOverview(
     preferences,
     (url, options) => net.fetch(url, options),
-    { webSearchAllowed: () => localSettings.get("assistant").webSearch },
+    {
+      webSearchAllowed: () => localSettings.get("assistant").webSearch,
+      cache: new AppResearchCache(localSettings.db),
+    },
   );
   assistant = new Assistant({
     preferences,

@@ -171,7 +171,7 @@ declare global {
         input: RowInfo & { id: string },
       ) => Promise<Result<RowInsight>>;
       rowOverviewResearch: (
-        input: RowInfo & { id: string },
+        input: RowInfo & { id: string; refresh?: boolean },
       ) => Promise<Result<{ research: AppResearch }>>;
       rowOverviewSource: (url: string) => Promise<Result<boolean>>;
       rowOverviewCancel: (id: string) => Promise<Result<boolean>>;

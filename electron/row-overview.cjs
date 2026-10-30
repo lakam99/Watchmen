@@ -112,9 +112,14 @@ function rowPayload(input) {
   };
 }
 class RowOverview extends Insights {
-  constructor(preferences, fetch, { webSearchAllowed = () => false } = {}) {
+  constructor(
+    preferences,
+    fetch,
+    { webSearchAllowed = () => false, cache = null } = {},
+  ) {
     super(preferences, fetch);
     this.webSearchAllowed = webSearchAllowed;
+    this.cache = cache;
     this.sources = new Set();
   }
   async explain(input) {
@@ -128,6 +133,11 @@ class RowOverview extends Insights {
       throw new Error("Wait for the current row overview to finish.");
     if (typeof input?.id !== "string" || !/^[\w-]{1,80}$/.test(input.id))
       throw new Error("Invalid row overview request.");
+    if (input.refresh !== undefined && typeof input.refresh !== "boolean")
+      throw new Error("Invalid research refresh request.");
+    if (input.refresh && !researchOnly)
+      throw new Error("Use the app research refresh action.");
+    const refresh = input.refresh === true;
     const payload = rowPayload(input);
     this.requestId = input.id;
     this.lastRequestId = input.id;
@@ -157,10 +167,6 @@ class RowOverview extends Insights {
           throw new Error("AI review canceled or timed out.");
       };
       await assertCurrent();
-      const result = researchOnly
-        ? {}
-        : await this.run(id, { controller, config, retainController: true });
-      await assertCurrent();
       const app = researchName(
         payload.facts.app?.split(config.token).join("[redacted]"),
       );
@@ -170,14 +176,45 @@ class RowOverview extends Insights {
         (config.provider === "openrouter" &&
           config.baseUrl === "https://openrouter.ai/api/v1");
       const automatic = this.webSearchAllowed() === true;
+      const cached = app ? this.cache?.get(app, config) : null;
       const research = {
         app,
         eligible: !!app,
         supported,
         status: !app ? "no_app" : !supported ? "unsupported" : "not_requested",
         sources: [],
+        ...(cached || {}),
       };
-      if (app && supported && (researchOnly || automatic)) {
+      let saveResearch = false;
+      // The cached public app description is independent of the live row data.
+      let result = {};
+      if (!researchOnly) {
+        try {
+          result = await this.run(id, {
+            controller,
+            config,
+            retainController: true,
+          });
+        } catch (error) {
+          await assertCurrent();
+          if (!cached) throw error;
+          result = {
+            text: "The live row explanation is unavailable. Saved app research is shown below.",
+            overviewNotice: error.message,
+            model: config.model,
+            provider: config.provider,
+            capturedAt: payload.capturedAt,
+            generatedAt: new Date().toISOString(),
+          };
+        }
+      }
+      await assertCurrent();
+      if (
+        app &&
+        supported &&
+        (researchOnly || automatic) &&
+        (!cached || refresh)
+      ) {
         try {
           await assertCurrent();
           if (!researchOnly && !this.webSearchAllowed())
@@ -198,26 +235,57 @@ class RowOverview extends Insights {
             throw new Error(
               "Web research permission changed. Request a fresh overview.",
             );
+          const explanation = researchText(found.answer, found.sources)
+            .trim()
+            .slice(0, 2000);
+          if (!explanation)
+            throw new UserError(
+              "Web research returned no usable explanation. The previous research has been kept, if available.",
+            );
           Object.assign(research, {
             status: "completed",
-            text: researchText(found.answer, found.sources).slice(0, 2000),
+            text: explanation,
+            app,
             sources: found.sources,
             researchedAt: found.researchedAt,
+            provider: config.provider,
+            model: config.model,
+            cached: false,
           });
-          for (const source of found.sources) this.sources.add(source.url);
+          delete research.cacheSavedAt;
+          saveResearch = true;
         } catch (error) {
           await assertCurrent();
           if (!researchOnly && !this.webSearchAllowed())
             throw new Error(
               "Web research permission changed. Request a fresh overview.",
             );
-          research.status = "failed";
+          research.status = cached ? "completed" : "failed";
           research.notice =
             error instanceof UserError
               ? error.message
               : "App research could not complete. Check your provider and model, or try again.";
+          if (cached)
+            research.notice +=
+              " Showing the previously saved research; its collection date is unchanged.";
         }
       }
+      if (refresh && cached && !supported)
+        research.notice =
+          "Use OpenAI or OpenRouter with its official endpoint to refresh. Showing the previously saved research.";
+      await assertCurrent();
+      if (saveResearch) {
+        if (!researchOnly && !this.webSearchAllowed())
+          throw new Error(
+            "Web research permission changed. Request a fresh overview.",
+          );
+        const saved = this.cache?.put(app, research, config);
+        if (this.cache && !saved)
+          research.cacheNotice =
+            "The research could not be saved to the local database. It is available for this session only.";
+      }
+      if (research.status === "completed")
+        for (const source of research.sources) this.sources.add(source.url);
       return {
         ...result,
         ...(result.text ? { text: result.text.slice(0, 1400) } : {}),

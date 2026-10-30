@@ -1,5 +1,8 @@
 ## Changes
 
+- Cache successful app research in the local traffic database and reuse explanations/citations across repeated row overviews, restarts, instances and provider changes. Label cached findings with their collection date and provider/model; keep live row analysis fresh.
+- Add **Refresh research** to run one new lookup and replace successful findings. Failed or cancelled refreshes retain the previous cache. Validate cached sources, keep credentials and row data out of research records, and bound retention to 500 recently used apps.
+
 - Teach **What is this?** to explain a named application/process and its typical network use alongside the observed row. Add **About the app** with cited, timestamped OpenAI/OpenRouter web research, automatically under the existing web opt-in or through a one-time **Research app on web** action. Search only the validated app name, prefer official documentation, preserve the basic overview on research failure, and distinguish general name-based research from verification of the local executable.
 - Keep row explanations read-only, preserve private-data exclusion and cancellation, and allow opening only source URLs returned by the current research.
 
