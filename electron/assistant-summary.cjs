@@ -20,6 +20,12 @@ function localSummary(entries) {
       ? value.toLocaleString("en-US")
       : "unknown";
   for (const { tool: name, result } of latest.values()) {
+    if (name === "window_visibility")
+      lines.push(
+        result.status === "running_in_tray"
+          ? "Watchmen hid its window to the system tray; monitoring continues."
+          : "Watchmen showed its monitor window.",
+      );
     if (name === "propose_app_action" && result.proposalId)
       lines.push(
         `An app task review (${clean(result.task, 70)}) was prepared; its local card shows the current approval status. A proposal is not execution.`,

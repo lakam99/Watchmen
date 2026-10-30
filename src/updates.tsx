@@ -203,8 +203,8 @@ export function UpdateSettings() {
       )}
       <p className="update-restart-note">
         Installation restarts this window. Active rule changes and packet
-        captures must finish first. Close other Watchmen windows before
-        installing; their monitoring stays active until you close them.
+        captures must finish first. Quit other Watchmen instances from their
+        tray icons before installing. Closing a window keeps monitoring active.
       </p>
     </section>
   );

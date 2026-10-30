@@ -1,5 +1,8 @@
 ## Changes
 
+- Keep Watchmen monitoring in the Windows system tray when its window is closed. Click the icon or choose Show Watchmen to return to the same window; choose Quit Watchmen to stop the app and collector. Captures, profiling, rule tasks and AI responses continue while hidden. Explicit quit, updates, administrator restart and Windows session-end signals bypass close-to-tray.
+- Add fixed AI show/hide window tools, keep hidden-window updates responsive, and clarify that other instances must be quit through their tray menus before installation.
+
 - Expand the OpenAI/OpenRouter assistant to operate the app beyond settings: monitor views/filters and local inspection, detailed profiles and change evidence, reviewed change management and saved explanations, packet capture/stop/import, JSON export, executable reveal/selection, rule enable/remove/bulk disable, geographic and exclusive policies, and guarded update actions. Local file pickers and exact single-use reviews control execution; broad policies show scope acknowledgement and country-only exceptions.
 - Keep chat available during approved background tasks, with fresh progress and cancellable Windows rollback. Exclude live status, packet metadata and view actions from investigation caching. Packet contents remain local, and app settings/credentials remain outside tooling.
 

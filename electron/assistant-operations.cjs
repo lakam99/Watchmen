@@ -50,6 +50,12 @@ const pages = [
   "AI console",
 ];
 const specs = {
+  window_visibility: {
+    description:
+      "Show Watchmen or hide its window to the Windows system tray while monitoring continues. App settings are unaffected.",
+    properties: { action: choice("Window action", ["show", "hide"]) },
+    required: ["action"],
+  },
   app_capabilities: {
     description:
       "List available operational tasks and boundaries. App settings and credentials cannot be changed by chat.",
@@ -233,10 +239,23 @@ async function execute(host, name, args, options, signal) {
     if (!s) throw new ToolError("Traffic history is unavailable.");
     return s;
   };
+  if (name === "window_visibility") {
+    if (signal?.aborted) throw new ToolError("Window action cancelled.");
+    if (!host.operations.windowVisibility?.(args.action))
+      throw new ToolError(
+        "The tray/window is unavailable; no display change was confirmed.",
+      );
+    return {
+      cacheable: false,
+      status: args.action === "hide" ? "running_in_tray" : "window_shown",
+      note: "Collection continues. Use the tray icon to reopen Watchmen or quit it fully.",
+    };
+  }
   if (name === "app_capabilities")
     return {
       tasks,
       views: pages,
+      displayTools: ["show_view", "window_visibility"],
       reads: [
         "network_status",
         "list_applications",
@@ -251,7 +270,7 @@ async function execute(host, name, args, options, signal) {
         "operation_status",
       ],
       boundaries:
-        "Settings and credentials are excluded. All mutations require a local review. Packet contents remain local. Pickers are controlled by the user. Row explanations and traffic insights use these read tools in this chat.",
+        "Settings and credentials are excluded. Network and data changes require local review; display-only controls do not. Packet contents remain local. Pickers are controlled by the user. Row explanations and traffic insights use these read tools in this chat.",
     };
   if (name === "operation_status") return status(host);
   if (name === "country_catalog") {

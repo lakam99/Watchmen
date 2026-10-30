@@ -199,7 +199,7 @@ test("installer guard excludes own renderer processes and refuses other instance
     assertNoOtherInstances([100, 101], {
       run: (_exe, _args, _opts, done) => done(null, csv),
     }),
-    /other Watchmen windows/,
+    /Quit the other Watchmen instances from their tray icons/,
   );
   await assertNoOtherInstances([100, 101, 200], {
     run: (_exe, _args, _opts, done) => done(null, csv),

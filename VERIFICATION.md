@@ -1,6 +1,14 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.7/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.8/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.8 validation
+
+- Window close now hides the existing BrowserWindow to a real Windows tray icon. Click/double-click and the registered Show/Hide menu handlers operate that window; Quit Watchmen invokes the existing shutdown path. Tray failure leaves ordinary close-to-quit available. Explicit app quit, the native updater quit signal, and Windows query-session-end/session-end signals bypass hiding. Windows session signals follow [Electron's window lifecycle](https://www.electronjs.org/docs/latest/api/base-window#event-query-session-end-windows); no actual OS shutdown or sign-out was triggered in verification.
+- All 128 unit tests pass. Five new lifecycle tests cover close/reopen/taskbar visibility, restoring a minimized window, single-use quit, app/updater/session bypass, tray failure/loss, idempotent cleanup and listeners, health text, and allowlisted AI visibility actions excluded from investigation caching. The updater guard regression now requires tray-Quit guidance.
+- Packaged Windows tests create a real native tray icon, close/hide without destroying the window, observe advancing live collector timestamps and increasing SQLite flow observations while hidden, restore the same webContents, invoke icon/menu callbacks, and verify Quit exits both app and its native collector. A second mode exercises the native update-quit signal and window close without launching an installer. The operational and existing OpenAI assistant smoke workflows also pass with simulated provider replies/native rules. No paid inference, real policy mutation or UAC was used.
+
+Evidence: `test-results/background-smoke-packaged.json`, `background-smoke-update-quit-packaged.json`, `unit-tray.txt`, and `background-restored.png`.
 
 ## Version 0.10.7 validation
 

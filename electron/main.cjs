@@ -7,6 +7,10 @@ const {
   net,
   safeStorage,
   nativeTheme,
+  Tray,
+  Menu,
+  nativeImage,
+  autoUpdater: nativeUpdater,
 } = require("electron");
 const { spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
@@ -32,6 +36,7 @@ const { SettingsStore } = require("./settings-store.cjs");
 const { Assistant } = require("./assistant.cjs");
 const { sourceURL } = require("./assistant-tools.cjs");
 let assistant;
+let background;
 let rowOverview;
 let localSettings;
 let updates;
@@ -82,7 +87,9 @@ const current = () => ({
   },
 });
 const send = () => {
-  if (win && !win.isDestroyed()) win.webContents.send("snapshot", current());
+  const snapshot = current();
+  background?.update(snapshot);
+  if (win && !win.isDestroyed()) win.webContents.send("snapshot", snapshot);
 };
 function collectorPath() {
   return app.isPackaged
@@ -595,6 +602,8 @@ app.whenReady().then(async () => {
         const { provider, model } = preferences.status().ai;
         return { provider, model };
       },
+      windowVisibility: (action) =>
+        action === "hide" ? background.hide() : background.show(),
       openOfficial: (task) =>
         shell.openExternal(
           task === "open_release"
@@ -623,6 +632,7 @@ app.whenReady().then(async () => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
   if (savedWindow.maximized) win.maximize();
@@ -647,6 +657,25 @@ app.whenReady().then(async () => {
     clearTimeout(boundsTimer);
     saveBounds();
   });
+  background = new (require("./background.cjs").Background)({
+    app,
+    win,
+    Tray,
+    Menu,
+    nativeImage,
+    icon: path.join(root, "assets", "watchmen.ico"),
+    updater: nativeUpdater,
+    onUnavailable: () =>
+      dialog
+        .showMessageBox(win, {
+          type: "warning",
+          title: "Watchmen tray unavailable",
+          message: "Watchmen could not create its system tray icon.",
+          detail:
+            "Closing this window will quit Watchmen for this session, so it cannot be left running without a way to reopen it.",
+        })
+        .catch(() => {}),
+  });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
   win.webContents.session.setPermissionRequestHandler(
@@ -662,6 +691,7 @@ let quitFinishing = false;
 async function finishQuit() {
   if (quitFinishing) return;
   quitFinishing = true;
+  background?.dispose();
   try {
     await packets?.shutdown();
   } catch {}

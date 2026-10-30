@@ -18,7 +18,7 @@ async function assertNoOtherInstances(ownPids, { run = execFile } = {}) {
         error
           ? reject(
               new Error(
-                "Other Watchmen windows could not be checked. Close them before retrying the update.",
+                "Other Watchmen instances could not be checked. Quit them from their tray icons before retrying the update.",
               ),
             )
           : resolve(stdout),
@@ -26,7 +26,7 @@ async function assertNoOtherInstances(ownPids, { run = execFile } = {}) {
   );
   if (otherWatchmenProcesses(output, ownPids).length)
     throw new Error(
-      "Close the other Watchmen windows before installing the update. Their monitoring and rule tasks have been left running.",
+      "Quit the other Watchmen instances from their tray icons before installing the update. Their monitoring and rule tasks have been left running.",
     );
 }
 module.exports = { assertNoOtherInstances, otherWatchmenProcesses };
