@@ -1,6 +1,14 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.3/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.4/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.4 validation
+
+- Every data-table type now has a right-click **What is this?** action: live app/destination/country/protocol groups, individual connections, saved apps/destinations/services, changes, packets and saved rules. Shift+F10 opens the same menu. Menu opening makes no provider request or row-selection change; choosing the action opens a frozen-row explanation with setup, loading, error and cancellation states. Dark/light and minimum-width layouts were inspected. A reproduced keyboard-menu dismissal caused by focus scrolling was corrected and the desktop regression passes.
+- A separate main-process read-only overview manager reuses the encrypted provider configuration and one-shot insights transport. It accepts fixed row kinds and bounded metadata fields, strips addresses/full paths, excludes packet summaries/content and forces unmeasured byte counters to null. Configured token redaction occurs before the request is sent, including a reproduced long-token regression. OpenRouter's web plugin is explicitly disabled; the overview has no action/web tools and rejects automatic `:online` variants. Results are plain text, requested in 2–3 sentences / 80 words and bounded on display. No chat or row explanations are persisted.
+- All 90 unit tests pass, including five overview tests for metadata validation/privacy, both provider formats, malformed/inherited fields, token redaction, scoped cancellation, automatic-web refusal and safe provider errors. Source and packaged overview checks pass across all 11 row types with both OpenAI and OpenRouter, covering nested rows, no implicit requests, unconfigured setup, keyboard access, provider failures/cancellation, private-data exclusion and zero native mutations. Existing packaged feature/encrypted-settings and OpenAI assistant workflows pass. Replies are simulated, and no user key, paid inference or real firewall changes were used.
+
+Evidence: `test-results/row-overview-smoke.json`, `row-overview-smoke-packaged.json`, `row-overview-dark.png`, `row-overview-light.png`, `features-smoke-packaged.json`, and `assistant-smoke-openai-packaged.json`.
 
 ## Version 0.10.3 validation
 

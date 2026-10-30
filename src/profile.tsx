@@ -15,6 +15,7 @@ import {
   Shield,
 } from "lucide-react";
 import { bytes } from "./model";
+import { rowAI } from "./row-overview";
 export type ProfileApp = {
   id: string;
   name: string;
@@ -421,7 +422,20 @@ export function TrafficProfile() {
               </thead>
               <tbody>
                 {data?.destinations.map((d) => (
-                  <tr key={d.address}>
+                  <tr
+                    key={d.address}
+                    {...rowAI("profile_destination", d.address, {
+                      scope: d.scope,
+                      country: d.country || "Unresolved",
+                      networkOwner: d.org || "Unknown",
+                      applications: d.applications,
+                      services: d.services,
+                      observations: d.observations,
+                      measuredMs: d.measuredMs,
+                      received: d.measuredMs ? d.received : null,
+                      sent: d.measuredMs ? d.sent : null,
+                    })}
+                  >
                     <td>
                       <strong>{d.address}</strong>
                       <small>
@@ -525,6 +539,15 @@ function ProfileAppRow({
   return (
     <>
       <tr
+        {...rowAI("profile_app", a.name, {
+          app: a.name,
+          destinations: a.destinations,
+          observations: a.observations,
+          sessions: a.sessions,
+          measuredMs: a.measuredMs,
+          received: a.measuredMs ? a.received : null,
+          sent: a.measuredMs ? a.sent : null,
+        })}
         className={expanded ? "selected-row" : ""}
         tabIndex={0}
         aria-label={`Saved profile ${a.name}`}
@@ -583,6 +606,23 @@ function ProfileAppRow({
                     <tbody>
                       {detail.endpoints.map((e) => (
                         <tr
+                          {...rowAI(
+                            "profile_service",
+                            `${a.name} · ${e.address}:${e.port || e.localServicePort || ""}`,
+                            {
+                              app: a.name,
+                              protocol: e.protocol,
+                              remotePort: e.port,
+                              localServicePort: e.localServicePort,
+                              scope: e.scope,
+                              country: e.country || "Unresolved",
+                              networkOwner: e.org || "Unknown",
+                              observations: e.observations,
+                              measuredMs: e.measuredMs,
+                              received: e.measuredMs ? e.received : null,
+                              sent: e.measuredMs ? e.sent : null,
+                            },
+                          )}
                           key={[
                             e.address,
                             e.protocol,

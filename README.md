@@ -4,7 +4,7 @@ A local-first Windows desktop network monitor with a spaceship terminal interfac
 
 ## Run the desktop app
 
-Open `release/0.10.3/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
+Open `release/0.10.4/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
 
 The standard mode reads live TCP connections, UDP listening sockets, process ownership, and incoming/outgoing network-interface rates. Use **Enable detailed capture** to relaunch with Windows administrator approval and enable per-process TCP/UDP byte counts. Canceling UAC leaves standard monitoring available.
 
@@ -93,6 +93,12 @@ Open **Packets** and choose a 5–30 second capture, or import a local PCAP/PCAP
 Search addresses, apps, protocols, and summaries, filter incoming/outgoing records, then select a packet for readable header fields, DNS questions, HTTP/plaintext where present, and header bytes. Common credential headers and token/password fields are redacted from text previews. This is a limited per-packet preview: it does not reassemble streams, decode every binary protocol, or decrypt TLS/HTTPS/QUIC. Encrypted payloads are labeled accordingly. App ownership is matched to current socket tuples when unambiguous; historical imports can remain unattributed. Packet direction uses this machine's current interface addresses.
 
 Live packet data stays in memory until another capture/import or app exit and is never stored in the profile database or sent to AI. On systems with several adapters, a packet may appear more than once. Imported captures remain the user's original files.
+
+## Row explanations
+
+Right-click a data-table row and select **What is this?** for a succinct, read-only AI explanation of that frozen row. This works for live applications, destinations, countries, protocols and nested connections; saved application/destination/service profiles; change notices; captured packets; and saved firewall rules. Focus a row and press **Shift+F10** for the same menu. Opening the menu makes no AI request; selecting the action uses your configured OpenAI, OpenRouter or compatible insights provider. An unconfigured account opens the AI setup flow. Close the panel or press Escape to cancel a pending overview.
+
+Row overviews send only validated, bounded names, ports, states, counts and measured counters. Addresses, full executable paths, packet summaries/payloads, local process IDs and arbitrary evidence are excluded; packet overviews use header metadata only. Configured credentials are redacted from metadata and output. Executable basenames can identify saved app rules. The request has no action tools or web research and asks for 2–3 sentences, at most 80 words. No chat history is attached or saved. Metadata can explain a protocol or rule without proving the destination's identity, an app's legitimacy, or a threat verdict. Provider charges may apply.
 
 ## AI command console and function tools
 

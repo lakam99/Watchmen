@@ -1,5 +1,6 @@
 ## Changes
 
+- Add **What is this?** to the right-click menu of every data-table row, including nested connections, saved profiles/services, changes, packet headers and firewall rules. Return a short read-only explanation through the configured AI provider; support Shift+F10, setup, cancellation, errors and dark/light layouts. Only validated metadata is sent, excluding addresses, full executable paths and packet contents; no action or web tools are exposed.
 - Enable direct OpenAI chat in the AI console using the saved OpenAI provider, model and encrypted token. Add stateless Responses API function calling, in-memory reasoning/call replay and opt-in isolated OpenAI web research with validated citations. Existing traffic/history tools and locally approved block/unblock actions work with either provider.
 - Replace the AI model text field with a dropdown of OpenAI models for both OpenAI and OpenRouter. Preserve the saved selection and provide a custom model ID option for other models and compatible endpoints. No catalog request or token sharing is needed to choose a model.
 - Add an OpenAI/OpenRouter chatbot in a starship command panel with live tool activity, background responses, cancellation, and session reset. Show the active provider in the console and privacy notices.

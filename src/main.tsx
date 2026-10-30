@@ -85,6 +85,7 @@ import {
   type AIConfig,
 } from "./ai";
 import { UpdateBanner, UpdateSettings, type UpdateState } from "./updates";
+import { RowOverviewUI, rowAI, type RowInfo } from "./row-overview";
 declare global {
   interface Window {
     watchmen?: {
@@ -152,6 +153,10 @@ declare global {
       ) => Promise<Result<unknown>>;
       dismissAllChanges: () => Promise<Result<number>>;
       preferences: () => Promise<Result<PreferencesStatus>>;
+      rowOverview: (
+        input: RowInfo & { id: string },
+      ) => Promise<Result<Insight>>;
+      rowOverviewCancel: (id: string) => Promise<Result<boolean>>;
       setTheme: (
         theme: "system" | "light" | "dark",
       ) => Promise<Result<PreferencesStatus>>;
@@ -236,6 +241,11 @@ function App() {
     [showAI, setShowAI] = useState(false),
     [connection, setConnection] = useState<string | null>(null),
     [packetSearch, setPacketSearch] = useState("");
+  useEffect(() => {
+    const setup = () => setSettings(true);
+    window.addEventListener("watchmen-ai-settings", setup);
+    return () => window.removeEventListener("watchmen-ai-settings", setup);
+  }, []);
   useEffect(() => {
     const bridge = window.watchmen;
     if (!bridge) return;
@@ -1237,6 +1247,40 @@ function App() {
                         {groups.slice(0, 200).map((g) => (
                           <React.Fragment key={g.id}>
                             <tr
+                              {...rowAI(
+                                group === "app" ? "application" : group,
+                                g.name,
+                                {
+                                  ...(group === "app"
+                                    ? { app: g.name }
+                                    : group === "country"
+                                      ? { country: g.name }
+                                      : group === "protocol"
+                                        ? { protocol: g.name }
+                                        : {
+                                            scope: scope(
+                                              g.flows[0]?.remoteAddress || "",
+                                            ),
+                                            country:
+                                              data.locations[
+                                                g.flows[0]?.remoteAddress
+                                              ]?.country || "Unresolved",
+                                            networkOwner:
+                                              data.locations[
+                                                g.flows[0]?.remoteAddress
+                                              ]?.org || "Unknown",
+                                          }),
+                                  connections: g.flows.length,
+                                  applications: new Set(
+                                    g.flows.map((f) => f.app),
+                                  ).size,
+                                  measured: data.tracing,
+                                  received: data.tracing ? g.received : null,
+                                  sent: data.tracing ? g.sent : null,
+                                  downloadRate: data.tracing ? g.rxRate : null,
+                                  uploadRate: data.tracing ? g.txRate : null,
+                                },
+                              )}
                               aria-expanded={selected === g.id}
                               className={
                                 selected === g.id ? "selected-row" : ""
@@ -1781,6 +1825,24 @@ function ConnectionTable({
             {rows.slice(current * 25, current * 25 + 25).map((f) => (
               <tr
                 key={f.id}
+                {...rowAI(
+                  "connection",
+                  `${f.app} · ${f.remoteAddress}:${f.remotePort}`,
+                  {
+                    app: f.app,
+                    protocol: f.protocol,
+                    remotePort: f.remotePort,
+                    state: f.state,
+                    active: f.active,
+                    scope: scope(f.remoteAddress),
+                    country:
+                      locations[f.remoteAddress]?.country || "Unresolved",
+                    networkOwner: locations[f.remoteAddress]?.org || "Unknown",
+                    measured: tracing,
+                    received: tracing ? f.received : null,
+                    sent: tracing ? f.sent : null,
+                  },
+                )}
                 tabIndex={0}
                 aria-label={`Inspect connection ${f.remoteAddress} port ${f.remotePort} PID ${f.pid}`}
                 onClick={() => inspect(f.id)}
@@ -2017,4 +2079,9 @@ function Inspector({
     </div>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <>
+    <App />
+    <RowOverviewUI />
+  </>,
+);

@@ -22,6 +22,7 @@ app.commandLine.appendSwitch("disable-gpu-shader-disk-cache");
 const { isPublicIP } = require("./network.cjs");
 const { Preferences } = require("./preferences.cjs");
 const { Insights } = require("./insights.cjs");
+const { RowOverview } = require("./row-overview.cjs");
 const { TrafficStore } = require("./traffic-store.cjs");
 const { Packets } = require("./packets.cjs");
 const { Firewall } = require("./firewall.cjs");
@@ -31,6 +32,7 @@ const { SettingsStore } = require("./settings-store.cjs");
 const { Assistant } = require("./assistant.cjs");
 const { sourceURL } = require("./assistant-tools.cjs");
 let assistant;
+let rowOverview;
 let localSettings;
 let updates;
 let firewall;
@@ -284,14 +286,18 @@ safeHandle("theme", async (theme) => {
   return status;
 });
 safeHandle("ai-save", (input) => {
+  rowOverview?.cancel();
   assistant?.reset();
   return preferences.saveAI(input);
 });
 safeHandle("ai-remove", () => {
+  rowOverview?.cancel();
   assistant?.reset();
   return preferences.removeToken();
 });
 safeHandle("assistant-status", () => assistant.status());
+safeHandle("row-overview", (input) => rowOverview.explain(input));
+safeHandle("row-overview-cancel", (id) => rowOverview.cancel(id));
 safeHandle("assistant-send", (text) => assistant.send(text));
 safeHandle("assistant-cancel", () => assistant.cancel());
 safeHandle("assistant-reset", () => assistant.reset());
@@ -533,13 +539,18 @@ app.whenReady().then(async () => {
         ? "Wait for the current network-rule task to finish before restarting."
         : packets?.status()?.active || packets?.status()?.processing
           ? "Stop the packet capture before restarting."
-          : assistant?.busy
-            ? "Stop the AI console response before restarting."
-            : null,
+          : rowOverview?.controller
+            ? "Close the AI row overview before restarting."
+            : assistant?.busy
+              ? "Stop the AI console response before restarting."
+              : null,
   });
   await updates.init();
   nativeTheme.themeSource = preferences.value.theme;
   insights = new Insights(preferences, (url, options) =>
+    net.fetch(url, options),
+  );
+  rowOverview = new RowOverview(preferences, (url, options) =>
     net.fetch(url, options),
   );
   assistant = new Assistant({
@@ -633,6 +644,7 @@ app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
   assistant?.cancel();
   insights?.cancel();
+  rowOverview?.cancel();
   updates?.dispose();
   if (shuttingDown) return;
   if (!agent || agent.exitCode !== null) {

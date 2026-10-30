@@ -12,6 +12,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import { bytes } from "./model";
+import { rowAI } from "./row-overview";
 import type { PreferencesStatus, Preview, Insight } from "./ai";
 export type Change = {
   id: string;
@@ -207,6 +208,17 @@ export function Changes({
                 {data?.alerts.map((a) => (
                   <tr
                     key={a.id}
+                    {...rowAI(
+                      "change",
+                      `${labels[a.type] || a.type} · ${a.app_name}`,
+                      {
+                        app: a.app_name,
+                        changeType: a.type,
+                        severity: a.severity,
+                        state: a.status,
+                        occurrences: a.occurrences || 1,
+                      },
+                    )}
                     tabIndex={0}
                     className={a.id === selected ? "selected-row" : ""}
                     aria-label={`Review ${labels[a.type]} for ${a.app_name}`}

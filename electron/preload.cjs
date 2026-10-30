@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld("watchmen", {
   saveViewSettings: (input) => ipcRenderer.invoke("view-settings-save", input),
   dismissAllChanges: () => ipcRenderer.invoke("alerts-dismiss-all"),
   preferences: () => ipcRenderer.invoke("preferences"),
+  rowOverview: (input) => ipcRenderer.invoke("row-overview", input),
+  rowOverviewCancel: (id) => ipcRenderer.invoke("row-overview-cancel", id),
   setTheme: (theme) => ipcRenderer.invoke("theme", theme),
   saveAI: (input) => ipcRenderer.invoke("ai-save", input),
   removeAIToken: () => ipcRenderer.invoke("ai-remove"),

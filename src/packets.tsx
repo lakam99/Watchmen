@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { rowAI } from "./row-overview";
 import {
   Radio,
   FolderOpen,
@@ -250,6 +251,21 @@ export function PacketInspector({
               {rows.map((p) => (
                 <tr
                   key={p.id}
+                  {...rowAI(
+                    "packet",
+                    `${p.protocol} packet · ${p.length} bytes`,
+                    {
+                      app: p.app || "Unknown",
+                      protocol: p.protocol,
+                      sourcePort: p.sourcePort,
+                      destinationPort: p.destinationPort,
+                      direction: p.direction,
+                      length: p.length,
+                      capturedLength: p.capturedLength,
+                      encrypted: p.encrypted,
+                      truncated: p.truncated,
+                    },
+                  )}
                   tabIndex={0}
                   aria-label={`Read packet ${p.id}`}
                   className={selected?.id === p.id ? "selected-row" : ""}

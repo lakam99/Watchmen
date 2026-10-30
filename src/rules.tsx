@@ -1069,7 +1069,21 @@ export function NetworkRules() {
             </thead>
             <tbody>
               {rules.map((rule) => (
-                <tr key={rule.id}>
+                <tr
+                  key={rule.id}
+                  {...rowAI("rule", rule.label, {
+                    app:
+                      rule.appPath?.split(/[\\/]/).pop() || "Any application",
+                    ruleKind: rule.kind,
+                    protocol: rule.protocol || "Any",
+                    remotePort: rule.port || 0,
+                    country: rule.countries.join(", ").slice(0, 1000),
+                    enabled: rule.enabled,
+                    partial: !!rule.partial,
+                    rangeCount: rule.rangeCount || 0,
+                    nativeRuleCount: rule.nativeRuleCount || 0,
+                  })}
+                >
                   <td>
                     <strong>{rule.label}</strong>
                     <small>
@@ -1195,3 +1209,4 @@ export function NetworkRules() {
     </div>
   );
 }
+import { rowAI } from "./row-overview";

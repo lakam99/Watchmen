@@ -1,0 +1,109 @@
+.row-ai-menu {
+  position: fixed;
+  z-index: 4000;
+  width: 238px;
+  padding: 6px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  box-shadow: 0 12px 36px #0006;
+}
+.row-ai-menu button {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.row-ai-menu button:hover,
+.row-ai-menu button:focus-visible {
+  background: var(--surface-tint);
+  outline: 1px solid var(--accent);
+}
+.row-ai-menu small {
+  display: block;
+  padding: 3px 12px 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.row-ai-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4100;
+  display: grid;
+  place-items: center;
+  background: #0008;
+  padding: 20px;
+}
+.row-ai-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 24px;
+  color: var(--text-primary);
+  background: var(--surface);
+  box-shadow: 0 20px 60px #0007;
+}
+.row-ai-dialog header,
+.row-ai-dialog header > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.row-ai-dialog header {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.row-ai-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.row-ai-label {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.row-ai-kind {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin: 7px 0 18px;
+}
+.row-ai-disclosure {
+  display: flex;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.row-ai-disclosure svg,
+.row-ai-loading svg {
+  flex-shrink: 0;
+}
+.row-ai-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.row-ai-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+  margin: 20px 0;
+}
+.row-ai-dialog footer {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-top: 22px;
+  font-size: 10px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.row-ai-dialog footer span {
+  display: block;
+  margin-top: 7px;
+}
