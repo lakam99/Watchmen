@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("watchmen", {
   },
   assistantStatus: () => ipcRenderer.invoke("assistant-status"),
   assistantSend: (text) => ipcRenderer.invoke("assistant-send", text),
+  assistantRaiseLimit: (id) => ipcRenderer.invoke("assistant-raise-limit", id),
+  assistantCheckpoint: (id) => ipcRenderer.invoke("assistant-checkpoint", id),
   assistantCancel: () => ipcRenderer.invoke("assistant-cancel"),
   assistantReset: () => ipcRenderer.invoke("assistant-reset"),
   assistantConfigure: (options) =>

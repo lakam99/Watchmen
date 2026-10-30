@@ -1,6 +1,15 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.5/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.6/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.6 validation
+
+- Implements exactly **Raise the tool limit by 6** and **Summarize & continue** for active responses and the latest limited summary. Raises add six rounds/call attempts and one minute, bounded to three increases. A checkpoint finishes the current operation, marks remaining calls unexecuted, summarizes, and resumes once with a fresh budget. Summary handles are single-use, bound to the investigation and current credentials/privacy, and expire after ten minutes. No separate Continue investigation UI/IPC is exposed.
+- Successful bounded results are cached by normalized tool/arguments, with original timestamps. Repeated read requests do not perform another lookup; failed requests remain retryable. Repeated action proposals return the existing review's status without preparing/applying another rule or extending its expiry. Original prompts are credential-redacted before replay; sources and skipped checks carry forward. The cache is bounded to 64 results and remains in memory. Cancellation, new questions, reset, permission changes and credential changes invalidate stale controls. Cached traffic is not represented as fresh measurement.
+- All 107 unit tests pass, including ten new investigation regressions covering both providers, reuse with new unfinished checks, stale/double-click/expired controls, proposal deduplication and approval, changed credentials/privacy, bounded extensions/deadlines, one-time checkpoint/resume, external lookup reuse and retained citations, bounded keys, paused-summary controls and cancelled resumed replies.
+- Packaged OpenAI and OpenRouter workflows pass: the two named controls work from summaries and during active requests; earlier telemetry is not fetched again; raising produces 12 rounds / 14 attempts; checkpointing resumes automatically once; no separate Continue button appears. Minimum-width controls were visually inspected, and all prior assistant workflow checks pass. Provider replies and native rule transport are simulated; no user key, paid inference or real firewall change was used. Final packages are built/audited by GitHub before publication.
+
+Evidence: `test-results/assistant-smoke-openai-packaged.json`, `assistant-smoke-packaged.json`, `ai-console-investigation-controls-openai.png`, and `ai-console-limit-summary-openai.png` (synthetic traffic).
 
 ## Version 0.10.5 validation
 

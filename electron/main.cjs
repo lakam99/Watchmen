@@ -299,6 +299,8 @@ safeHandle("assistant-status", () => assistant.status());
 safeHandle("row-overview", (input) => rowOverview.explain(input));
 safeHandle("row-overview-cancel", (id) => rowOverview.cancel(id));
 safeHandle("assistant-send", (text) => assistant.send(text));
+safeHandle("assistant-raise-limit", (id) => assistant.raiseLimit(id));
+safeHandle("assistant-checkpoint", (id) => assistant.summarizeAndContinue(id));
 safeHandle("assistant-cancel", () => assistant.cancel());
 safeHandle("assistant-reset", () => assistant.reset());
 safeHandle("assistant-configure", (options) => assistant.configure(options));
@@ -308,14 +310,7 @@ safeHandle("assistant-approve", (id, acknowledged) =>
 safeHandle("assistant-reject", (id) => assistant.reject(id));
 safeHandle("assistant-source", (url) => {
   const safe = sourceURL(url);
-  if (
-    !safe ||
-    !assistant.trace.some(
-      (t) =>
-        t.tool === "search_web" &&
-        t.result?.sources?.some((s) => s.url === safe),
-    )
-  )
+  if (!safe || !assistant.hasSource(safe))
     throw new Error(
       "This source is not available in the current research session.",
     );

@@ -29,6 +29,8 @@ type Message = {
   at: number;
   sources?: Source[];
   summarySource?: "model" | "local";
+  canContinue?: boolean;
+  canRaiseLimit?: boolean;
 };
 type Trace = {
   id: string;
@@ -56,6 +58,14 @@ type Proposal = {
   };
 };
 export type AssistantState = {
+  budget: {
+    rounds: number;
+    calls: number;
+    extensions: number;
+    canRaise: boolean;
+    canCheckpoint: boolean;
+    checkpointPending: boolean;
+  } | null;
   revision: number;
   busy: boolean;
   actionBusy: boolean;
@@ -139,6 +149,20 @@ export function AIConsole({
   const providerName =
     preferences?.ai.provider === "openai" ? "OpenAI" : "OpenRouter";
   const busy = !!state?.busy || !!state?.actionBusy || localBusy;
+  const [controlBusy, setControlBusy] = useState(false);
+  async function control(request: () => Promise<Result<AssistantState>>) {
+    setControlBusy(true);
+    setError("");
+    try {
+      const result = await request();
+      if (result.ok) accept(result.value);
+      else setError(result.error);
+    } catch {
+      setError("The investigation control could not complete.");
+    } finally {
+      setControlBusy(false);
+    }
+  }
   async function run(request: () => Promise<Result<AssistantState>>) {
     setError("");
     setLocalBusy(true);
@@ -264,6 +288,34 @@ export function AIConsole({
                   </time>
                 </header>
                 <p>{m.text}</p>
+                {m.canContinue && (
+                  <div className="console-continuation">
+                    <button
+                      className="button"
+                      disabled={busy || !ready || !m.canRaiseLimit}
+                      title="Resume the same investigation with six more AI rounds and tool-call attempts. Completed lookups are reused."
+                      onClick={() =>
+                        run(() => window.watchmen!.assistantRaiseLimit(m.id))
+                      }
+                    >
+                      Raise the tool limit by 6
+                    </button>
+                    <button
+                      className="button"
+                      disabled={busy || !ready}
+                      title="Resume from this summary with a fresh six-round budget, reusing the collected evidence."
+                      onClick={() =>
+                        run(() => window.watchmen!.assistantCheckpoint(m.id))
+                      }
+                    >
+                      Summarize & continue <ChevronRight size={13} />
+                    </button>
+                    <small>
+                      Reuse timestamped findings and investigate unfinished
+                      checks. Ask a fresh question for new measurements.
+                    </small>
+                  </div>
+                )}
                 {!!m.sources?.length && (
                   <div className="console-sources">
                     {m.sources.map((s) => (
@@ -284,6 +336,36 @@ export function AIConsole({
             )}
           </div>
           <div className="console-composer">
+            {state?.busy && state.budget && (
+              <div className="console-investigation-controls">
+                <span>
+                  {state.budget.rounds} AI rounds / {state.budget.calls}{" "}
+                  tool-call attempts in this pass
+                </span>
+                <button
+                  className="button"
+                  disabled={controlBusy || !state.budget.canRaise}
+                  title="Add six AI rounds and six tool-call attempts; extend the deadline by one minute. Up to three extensions per pass."
+                  onClick={() =>
+                    control(() => window.watchmen!.assistantRaiseLimit())
+                  }
+                >
+                  Raise the tool limit by 6
+                </button>
+                <button
+                  className="button"
+                  disabled={controlBusy || !state.budget.canCheckpoint}
+                  title="Finish the current operation, summarize collected evidence, then resume once with a fresh budget."
+                  onClick={() =>
+                    control(() => window.watchmen!.assistantCheckpoint())
+                  }
+                >
+                  {state.budget.checkpointPending
+                    ? "Checkpoint queued"
+                    : "Summarize & continue"}
+                </button>
+              </div>
+            )}
             {!ready && (
               <div className="console-setup">
                 <span>
@@ -322,7 +404,7 @@ export function AIConsole({
             />
             <div className="console-composer-actions">
               <span>
-                {draft.length.toLocaleString()} / 4,000 · up to 6 tool rounds +
+                {draft.length.toLocaleString()} / 4,000 · 6 rounds by default +
                 final summary
               </span>
               <button

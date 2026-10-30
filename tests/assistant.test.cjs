@@ -1087,7 +1087,8 @@ test("eight-tool budget stops execution mid-batch, pairs every call output, and 
     };
     const result = await f.manager.send("Run several lookups");
     assert.equal(result.error, null);
-    assert.equal(executions, 8);
+    assert.equal(executions, 1);
+    assert.equal(result.trace.filter((t) => t.status === "cached").length, 7);
     assert.equal(f.requests.length, 4);
     assert.equal(result.trace.filter((t) => t.status === "skipped").length, 2);
     assert.equal(result.proposals.length, 0);
@@ -1290,6 +1291,498 @@ test("local recaps retain sampled apps and distinct connection queries while omi
     assert.ok(text.includes(expected));
   assert.ok(!text.includes("unknown active connections"));
   assert.ok(!text.includes(token));
+});
+
+function investigationInput(body, provider) {
+  const messages = provider === "openai" ? body.input : body.messages;
+  const index = messages.findLastIndex((m) => m.role === "user");
+  return {
+    prompt: messages[index].content,
+    results: messages
+      .slice(index + 1)
+      .filter((m) =>
+        provider === "openai"
+          ? m.type === "function_call_output"
+          : m.role === "tool",
+      )
+      .map((m) => JSON.parse(m.output || m.content)),
+  };
+}
+const providerTool = (provider, name, args = {}) =>
+  provider === "openai"
+    ? openAIReply([openAICall(name, args)])
+    : reply(call(name, args));
+const providerText = (provider, text) =>
+  provider === "openai"
+    ? openAIReply([openAIText(text)])
+    : reply({ content: text });
+
+test("continuations reuse completed lookups, preserve the original request, and use fresh tools only for unfinished checks", async () => {
+  for (const provider of ["openai", "openrouter"]) {
+    const executions = [];
+    const f = fixture({
+      provider,
+      fetch: (body) => {
+        const { prompt, results } = investigationInput(body, provider);
+        if (body.tool_choice === "none")
+          return providerText(
+            provider,
+            "Application inspection remains unfinished.",
+          );
+        if (prompt.startsWith("Continue the investigation")) {
+          assert.ok(prompt.includes("Investigate [redacted]"));
+          assert.match(JSON.stringify(body), /completedLookups/);
+          if (!results.length)
+            return providerTool(provider, "list_applications", {
+              query: "browser",
+            });
+          if (results.length === 1) {
+            assert.equal(results[0].cache.reused, true);
+            return providerTool(provider, "inspect_connections", {
+              appRef: results[0].applications[0].appRef,
+            });
+          }
+          return providerText(
+            provider,
+            "Finished the previously missing application inspection.",
+          );
+        }
+        return !results.length
+          ? providerTool(provider, "list_applications", { query: "Browser" })
+          : providerTool(provider, "network_status");
+      },
+    });
+    const execute = f.manager.tools.execute.bind(f.manager.tools);
+    f.manager.tools.execute = (...args) => {
+      executions.push(args[0]);
+      return execute(...args);
+    };
+    let result = await f.manager.send("Investigate " + token);
+    const id = result.messages.at(-1).id;
+    assert.equal(result.messages.at(-1).canContinue, true);
+    assert.deepEqual(executions, ["list_applications", "network_status"]);
+    f.advance(1000);
+    result = await f.manager.continueInvestigation(id);
+    assert.equal(result.error, null);
+    assert.match(result.messages.at(-1).text, /previously missing/);
+    assert.equal(
+      result.messages.some((m) => m.canContinue),
+      false,
+    );
+    assert.deepEqual(executions, [
+      "list_applications",
+      "network_status",
+      "inspect_connections",
+    ]);
+    assert.equal(result.trace.filter((t) => t.status === "cached").length, 5);
+    assert.ok(!JSON.stringify(f.requests.map((r) => r.body)).includes(token));
+    await assert.rejects(
+      () => f.manager.continueInvestigation(id),
+      /no longer available/,
+    );
+    await f.manager.send("Fresh question");
+    assert.equal(executions.filter((n) => n === "list_applications").length, 2);
+    assert.equal(f.native.length, 0);
+  }
+});
+
+test("continuation handles are single-use, latest-summary-only, and expire with their in-memory investigation", async () => {
+  const f = fixture({
+    fetch: (body) =>
+      body.tool_choice === "none"
+        ? reply({ content: "More checks remain." })
+        : reply(call("network_status")),
+  });
+  const first = await f.manager.send("Investigate");
+  const id = first.messages.at(-1).id;
+  const pending = f.manager.continueInvestigation(id);
+  await assert.rejects(
+    () => f.manager.continueInvestigation(id),
+    /current response/,
+  );
+  const second = await pending;
+  assert.notEqual(second.messages.at(-1).id, id);
+  assert.equal(second.messages.at(-1).canContinue, true);
+  assert.equal(second.messages.find((m) => m.id === id).canContinue, false);
+  await assert.rejects(
+    () => f.manager.continueInvestigation(id),
+    /no longer available/,
+  );
+  f.advance(600001);
+  assert.equal(
+    f.manager.status().messages.some((m) => m.canContinue),
+    false,
+  );
+  await assert.rejects(
+    () => f.manager.continueInvestigation(second.messages.at(-1).id),
+    /no longer available/,
+  );
+  assert.equal(f.manager.investigation, null);
+});
+
+test("continuation preserves existing approval cards and cannot duplicate or execute a cached block proposal", async () => {
+  let appRef,
+    preparations = 0;
+  const f = fixture({
+    fetch: (body) => {
+      const { prompt, results } = investigationInput(body, "openrouter");
+      if (body.tool_choice === "none")
+        return reply({ content: "The existing block review needs approval." });
+      if (prompt.startsWith("Continue the investigation")) {
+        if (!results.length)
+          return reply(
+            call("propose_block", { scope: "app", targetRef: appRef }),
+          );
+        assert.equal(results[0].cache.reused, true);
+        assert.equal(results[0].status, "pending_user_approval");
+        return reply({
+          content:
+            "The original review remains pending; no change was applied.",
+        });
+      }
+      if (!results.length) return reply(call("list_applications"));
+      if (results.length === 1) {
+        appRef = results[0].applications[0].appRef;
+        return reply(
+          call("propose_block", { scope: "app", targetRef: appRef }),
+        );
+      }
+      return reply(call("network_status"));
+    },
+  });
+  const prepare = f.firewall.prepare.bind(f.firewall);
+  f.firewall.prepare = (...args) => {
+    preparations++;
+    return prepare(...args);
+  };
+  let result = await f.manager.send("Investigate and prepare a block");
+  const review = result.proposals[0];
+  result = await f.manager.continueInvestigation(result.messages.at(-1).id);
+  assert.equal(result.error, null);
+  assert.equal(preparations, 1);
+  assert.equal(result.proposals.length, 1);
+  assert.equal(result.proposals[0].id, review.id);
+  assert.equal(result.proposals[0].expires, review.expires);
+  assert.equal(f.native.length, 0);
+  result = await f.manager.approve(review.id, false);
+  assert.equal(result.proposals[0].status, "completed");
+  assert.equal(f.native.filter((r) => r.action === "add").length, 1);
+});
+
+test("continuations reject revoked permissions, changed credentials, reset sessions, and stale handles without a model request", async () => {
+  for (const change of [
+    "permissions",
+    "provider",
+    "model",
+    "token",
+    "reset",
+    "cancel",
+  ]) {
+    const f = fixture({
+      fetch: (body) =>
+        body.tool_choice === "none"
+          ? reply({ content: "Unfinished checks remain." })
+          : reply(call("network_status")),
+    });
+    const result = await f.manager.send("Investigate");
+    const id = result.messages.at(-1).id,
+      before = f.requests.length;
+    if (change === "permissions")
+      await f.settings.patch("assistant", { shareIPs: true });
+    if (change === "provider") {
+      f.credentials.provider = "openai";
+      f.credentials.baseUrl = "https://api.openai.com/v1";
+    }
+    if (change === "model") f.credentials.model = "another-model";
+    if (change === "token") f.credentials.token = "another-synthetic-token";
+    if (change === "reset") f.manager.reset();
+    if (change === "cancel") f.manager.cancel();
+    try {
+      await f.manager.continueInvestigation(id);
+    } catch (e) {
+      assert.match(e.message, /fresh question|no longer available/);
+    }
+    assert.equal(f.requests.length, before);
+    assert.equal(
+      f.manager.status().messages.some((m) => m.canContinue),
+      false,
+    );
+    assert.equal(f.native.length, 0);
+  }
+});
+
+test("raising a running pass adds six rounds and calls, extends its deadline, and enforces three extensions", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let releaseFirst, started, signal;
+  const firstStarted = new Promise((resolve) => {
+    started = resolve;
+  });
+  let fetches = 0;
+  const f = fixture({
+    fetch: (body, _, init) => {
+      if (fetches++ === 0) {
+        signal = init.signal;
+        started();
+        return new Promise((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return body.tool_choice === "none"
+        ? reply({ content: "Extended investigation summary." })
+        : reply(call("network_status"));
+    },
+  });
+  assert.throws(() => f.manager.raiseLimit(), /cannot be extended/);
+  const pending = f.manager.send("Investigate");
+  await firstStarted;
+  let state = f.manager.raiseLimit();
+  assert.equal(state.budget.rounds, 12);
+  assert.equal(state.budget.calls, 14);
+  f.manager.raiseLimit();
+  state = f.manager.raiseLimit();
+  assert.equal(state.budget.rounds, 24);
+  assert.equal(state.budget.calls, 26);
+  assert.equal(state.budget.canRaise, false);
+  assert.throws(() => f.manager.raiseLimit(), /cannot be extended/);
+  t.mock.timers.tick(90000);
+  assert.equal(signal.aborted, false);
+  releaseFirst(reply(call("network_status")));
+  const result = await pending;
+  assert.equal(result.error, null);
+  assert.equal(f.requests.length, 25);
+  assert.equal(result.trace.filter((r) => r.status === "completed").length, 1);
+  assert.equal(result.trace.filter((r) => r.status === "cached").length, 23);
+  assert.equal(f.native.length, 0);
+});
+
+test("summarize-and-continue checkpoints skipped calls and resumes exactly once with a fresh budget", async () => {
+  for (const provider of ["openai", "openrouter"]) {
+    let releaseFirst,
+      started,
+      fetches = 0;
+    const firstStarted = new Promise((resolve) => {
+      started = resolve;
+    });
+    const f = fixture({
+      provider,
+      fetch: (body) => {
+        if (fetches++ === 0) {
+          started();
+          return new Promise((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+        if (body.tool_choice === "none")
+          return providerText(
+            provider,
+            "Checkpoint summary; remaining checks are recorded.",
+          );
+        const { prompt } = investigationInput(body, provider);
+        assert.ok(prompt.startsWith("Continue the investigation"));
+        assert.match(JSON.stringify(body), /unfinishedCalls/);
+        return providerTool(provider, "network_status");
+      },
+    });
+    const pending = f.manager.send("Investigate");
+    await firstStarted;
+    const queued = f.manager.summarizeAndContinue();
+    assert.equal(queued.budget.checkpointPending, true);
+    assert.equal(queued.budget.canRaise, false);
+    assert.throws(
+      () => f.manager.summarizeAndContinue(),
+      /cannot be requested/,
+    );
+    releaseFirst(providerTool(provider, "list_applications"));
+    const result = await pending;
+    assert.equal(result.error, null);
+    assert.equal(f.requests.length, 9);
+    assert.equal(result.trace[0].status, "skipped");
+    assert.equal(result.messages.filter((m) => m.role === "user").length, 2);
+    assert.equal(result.messages.filter((m) => m.canContinue).length, 1);
+    assert.equal(
+      result.trace.filter(
+        (r) => r.tool === "network_status" && r.status === "completed",
+      ).length,
+      1,
+    );
+    assert.equal(
+      result.trace.filter(
+        (r) => r.tool === "network_status" && r.status === "cached",
+      ).length,
+      5,
+    );
+    assert.equal(f.native.length, 0);
+  }
+});
+
+test("a continued investigation returns recorded external lookups and keeps citations without new research requests", async () => {
+  let ipLookups = 0,
+    webLookups = 0,
+    connectionRef;
+  const f = fixture({
+    options: { webSearch: true, ipLookups: true },
+    fetch: (body, url) => {
+      if (url.startsWith("https://ipwho.is/")) {
+        ipLookups++;
+        return new Response(
+          JSON.stringify({
+            success: true,
+            country: "Example",
+            connection: { org: "Example network" },
+          }),
+        );
+      }
+      if (body.tools.some((t) => t.type === "openrouter:web_search")) {
+        webLookups++;
+        return reply({
+          content: "QUIC source.",
+          annotations: [
+            {
+              type: "url_citation",
+              url_citation: {
+                url: "https://www.rfc-editor.org/rfc/rfc9000",
+                title: "QUIC",
+              },
+            },
+          ],
+        });
+      }
+      if (body.tool_choice === "none")
+        return reply({ content: "More checks remain." });
+      const { prompt, results } = investigationInput(body, "openrouter");
+      if (prompt.startsWith("Continue the investigation")) {
+        if (!results.length)
+          return reply(call("lookup_destination", { connectionRef }));
+        if (results.length === 1)
+          return reply(call("search_web", { query: "QUIC specification" }));
+        return reply({
+          content: "Continued using the earlier cited research.",
+        });
+      }
+      if (!results.length) return reply(call("inspect_connections"));
+      if (results.length === 1) {
+        connectionRef = results[0].connections[0].connectionRef;
+        return reply(call("lookup_destination", { connectionRef }));
+      }
+      if (results.length === 2)
+        return reply(call("search_web", { query: "QUIC specification" }));
+      return reply(call("network_status"));
+    },
+  });
+  let result = await f.manager.send("Investigate");
+  result = await f.manager.continueInvestigation(result.messages.at(-1).id);
+  assert.equal(result.error, null);
+  assert.equal(ipLookups, 1);
+  assert.equal(webLookups, 1);
+  assert.equal(result.messages.at(-1).sources[0].title, "QUIC");
+  f.manager.trace = [];
+  assert.equal(
+    f.manager.hasSource("https://www.rfc-editor.org/rfc/rfc9000"),
+    true,
+  );
+  assert.equal(f.manager.hasSource("https://example.com/not-a-source"), false);
+});
+
+test("investigation lookup cache is bounded and normalizes only equivalent lookup arguments", () => {
+  const {
+    Investigation,
+    lookupKey,
+  } = require("../electron/assistant-investigation.cjs");
+  assert.equal(
+    lookupKey("list_applications", { query: "Browser" }),
+    lookupKey("list_applications", { query: "browser" }),
+  );
+  assert.equal(
+    lookupKey("traffic_profile", {}),
+    lookupKey("traffic_profile", { range: "7d" }),
+  );
+  const investigation = new Investigation("Investigate", Date.now());
+  for (let i = 0; i < 70; i++)
+    investigation.remember({
+      tool: "list_applications",
+      arguments: { query: "app" + i },
+      status: "completed",
+      result: { applications: [] },
+      at: Date.now(),
+    });
+  assert.equal(investigation.cache.size, 64);
+  assert.equal(
+    investigation.reuse("list_applications", { query: "app0" }, []).cache
+      .reused,
+    true,
+  );
+  assert.equal(
+    investigation.reuse("list_applications", { query: "app69" }, []),
+    null,
+  );
+});
+
+test("summary controls either increase the stopped budget by six or resume with a fresh budget", async () => {
+  for (const provider of ["openai", "openrouter"]) {
+    const f = fixture({
+      provider,
+      fetch: (body) =>
+        body.tool_choice === "none"
+          ? providerText(provider, "A limited summary.")
+          : providerTool(provider, "network_status"),
+    });
+    let result = await f.manager.send("Investigate");
+    const firstCount = f.requests.length;
+    result = await f.manager.raiseLimit(result.messages.at(-1).id);
+    assert.equal(result.error, null);
+    assert.equal(f.requests.length - firstCount, 13);
+    assert.equal(f.manager.continuation.rounds, 12);
+    assert.equal(f.manager.continuation.calls, 14);
+    const raisedCount = f.requests.length;
+    result = await f.manager.summarizeAndContinue(result.messages.at(-1).id);
+    assert.equal(result.error, null);
+    assert.equal(f.requests.length - raisedCount, 7);
+    assert.equal(f.manager.continuation.rounds, 6);
+    assert.equal(f.manager.continuation.calls, 8);
+    assert.equal(
+      result.trace.filter((t) => t.status === "completed").length,
+      1,
+    );
+    assert.equal(f.native.length, 0);
+  }
+});
+
+test("cancelling a resumed pass clears its handles and prevents a late reply from restoring controls", async () => {
+  let release, started;
+  const resumed = new Promise((resolve) => {
+    started = resolve;
+  });
+  const f = fixture({
+    fetch: (body) => {
+      const { prompt } = investigationInput(body, "openrouter");
+      if (prompt.startsWith("Continue the investigation")) {
+        started();
+        return new Promise((resolve) => {
+          release = resolve;
+        });
+      }
+      return body.tool_choice === "none"
+        ? reply({ content: "Limit summary." })
+        : reply(call("network_status"));
+    },
+  });
+  const first = await f.manager.send("Investigate");
+  const pending = f.manager.summarizeAndContinue(first.messages.at(-1).id);
+  await resumed;
+  f.manager.cancel();
+  release(reply({ content: "Late continuation that must not appear" }));
+  const result = await pending;
+  assert.equal(result.busy, false);
+  assert.equal(f.manager.investigation, null);
+  assert.equal(
+    result.messages.some((m) => m.canContinue),
+    false,
+  );
+  assert.equal(
+    result.messages.some((m) => m.text.includes("Late continuation")),
+    false,
+  );
+  assert.equal(f.native.length, 0);
 });
 
 test("deadline expiry during the final summary returns collected facts while user cancellation remains distinct", async (t) => {

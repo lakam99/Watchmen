@@ -432,3 +432,20 @@ html .console-review-actions .button {
     margin-bottom: 3px;
   }
 }
+.console-continuation,
+.console-investigation-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 12px 0;
+}
+.console-continuation small,
+.console-investigation-controls span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.console-investigation-controls span {
+  flex-basis: 100%;
+}

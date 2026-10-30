@@ -5,7 +5,7 @@ function localSummary(entries) {
   const latest = new Map();
   for (const entry of entries)
     if (
-      entry.status === "completed" &&
+      ["completed", "cached"].includes(entry.status) &&
       entry.result &&
       !entry.result.error &&
       (!entry.result.truncated || Array.isArray(entry.result.applications))

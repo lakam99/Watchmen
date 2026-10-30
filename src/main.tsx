@@ -91,6 +91,8 @@ declare global {
     watchmen?: {
       assistantStatus: () => Promise<Result<AssistantState>>;
       assistantSend: (text: string) => Promise<Result<AssistantState>>;
+      assistantRaiseLimit: (id?: string) => Promise<Result<AssistantState>>;
+      assistantCheckpoint: (id?: string) => Promise<Result<AssistantState>>;
       assistantCancel: () => Promise<Result<AssistantState>>;
       assistantReset: () => Promise<Result<AssistantState>>;
       assistantConfigure: (

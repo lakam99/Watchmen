@@ -301,7 +301,24 @@ const { _electron: electron } = require("playwright"),
                 .slice(lastUser + 1)
                 .filter((m) => m.role === "tool"),
               last = results.length ? JSON.parse(results.at(-1).content) : null;
-            if (/limit/i.test(prompt)) {
+            if (prompt.startsWith("Continue the investigation")) {
+              if (!last) return tool("network_status");
+              if (results.length === 1) return tool("inspect_connections");
+              return response({
+                content:
+                  "Resumed the investigation using earlier telemetry and the missing connection details.",
+              });
+            }
+            if (
+              /raise|checkpoint/i.test(prompt) &&
+              !global.__assistantControlHoldUsed
+            ) {
+              global.__assistantControlHoldUsed = true;
+              await new Promise((resolve) => {
+                global.__assistantReleaseControl = resolve;
+              });
+            }
+            if (/limit|raise|checkpoint/i.test(prompt)) {
               if (body.tool_choice !== "none") return tool("network_status");
               if (body.tools.length !== 0)
                 throw new Error("Final summary must not expose tools");
@@ -312,8 +329,7 @@ const { _electron: electron } = require("playwright"),
                 });
               if (!/slow/i.test(prompt))
                 return response({
-                  content:
-                    "Collected six telemetry snapshots. Further lookups stopped at this message's limit; no network change was applied.",
+                  content: `Completed ${results.length} tool rounds using collected telemetry. Further lookups stopped at this message's limit; no network change was applied.`,
                 });
             }
             if (/slow/i.test(prompt))
@@ -373,6 +389,8 @@ const { _electron: electron } = require("playwright"),
         const handles = {
           "assistant-status": () => manager.status(),
           "assistant-send": (text) => manager.send(text),
+          "assistant-raise-limit": (id) => manager.raiseLimit(id),
+          "assistant-checkpoint": (id) => manager.summarizeAndContinue(id),
           "assistant-cancel": () => manager.cancel(),
           "assistant-reset": () => manager.reset(),
           "assistant-configure": (options) => manager.configure(options),
@@ -392,6 +410,15 @@ const { _electron: electron } = require("playwright"),
           });
         }
         global.__assistantFixture = manager;
+        global.__assistantToolExecutions = [];
+        const execute = manager.tools.execute.bind(manager.tools);
+        manager.tools.execute = (...args) => {
+          global.__assistantToolExecutions.push({
+            name: args[0],
+            args: args[1],
+          });
+          return execute(...args);
+        };
         send("snapshot", current);
         send("assistant-state", manager.status());
       },
@@ -512,7 +539,7 @@ const { _electron: electron } = require("playwright"),
     await send("Run a limit investigation.");
     await page
       .getByText(
-        "Collected six telemetry snapshots. Further lookups stopped at this message's limit; no network change was applied.",
+        "Completed 6 tool rounds using collected telemetry. Further lookups stopped at this message's limit; no network change was applied.",
         { exact: true },
       )
       .waitFor();
@@ -530,6 +557,42 @@ const { _electron: electron } = require("playwright"),
       path: "test-results/ai-console-limit-summary" + evidenceSuffix + ".png",
       fullPage: true,
     });
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Continue investigation", exact: true })
+        .count(),
+      0,
+    );
+    const beforeResume = await app.evaluate(
+      () =>
+        global.__assistantToolExecutions.filter(
+          (e) => e.name === "network_status",
+        ).length,
+    );
+    await page
+      .getByRole("button", { name: "Summarize & continue", exact: true })
+      .click();
+    await page
+      .getByText(
+        "Resumed the investigation using earlier telemetry and the missing connection details.",
+        { exact: true },
+      )
+      .waitFor();
+    assert.equal(
+      await app.evaluate(
+        () =>
+          global.__assistantToolExecutions.filter(
+            (e) => e.name === "network_status",
+          ).length,
+      ),
+      beforeResume,
+    );
+    limited = await page.evaluate(() => window.watchmen.assistantStatus());
+    assert.equal(limited.value.error, null);
+    assert.equal(
+      limited.value.messages.some((m) => m.canContinue),
+      false,
+    );
     await send("Run a limit fallback investigation.");
     await page.getByText("COLLECTED RESULTS", { exact: true }).waitFor();
     limited = await page.evaluate(() => window.watchmen.assistantStatus());
@@ -543,6 +606,100 @@ const { _electron: electron } = require("playwright"),
       path: "test-results/ai-console-limit-recap" + evidenceSuffix + ".png",
       fullPage: true,
     });
+    await page
+      .getByRole("button", { name: "Raise the tool limit by 6", exact: true })
+      .click();
+    await page
+      .getByText(
+        "Resumed the investigation using earlier telemetry and the missing connection details.",
+        { exact: true },
+      )
+      .last()
+      .waitFor();
+    limited = await page.evaluate(() => window.watchmen.assistantStatus());
+    assert.equal(limited.value.error, null);
+    async function startControl(prompt) {
+      await app.evaluate(() => {
+        global.__assistantControlHoldUsed = false;
+        global.__assistantReleaseControl = null;
+      });
+      await message.fill(prompt);
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Raise the tool limit by 6", exact: true })
+        .waitFor();
+    }
+    async function releaseControl() {
+      await app.evaluate(async () => {
+        for (let i = 0; i < 200; i++) {
+          if (global.__assistantReleaseControl) {
+            global.__assistantReleaseControl();
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error("The model-control fixture did not start");
+      });
+    }
+    await startControl("Run a raise-limit investigation.");
+    await page
+      .getByRole("button", { name: "Raise the tool limit by 6", exact: true })
+      .click();
+    await page
+      .getByText("12 AI rounds / 14 tool-call attempts in this pass", {
+        exact: true,
+      })
+      .waitFor();
+    await page.setViewportSize({ width: 1000, height: 760 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+      false,
+    );
+    await page.screenshot({
+      path:
+        "test-results/ai-console-investigation-controls" +
+        evidenceSuffix +
+        ".png",
+      fullPage: true,
+    });
+    await releaseControl();
+    await page
+      .getByText(
+        "Completed 12 tool rounds using collected telemetry. Further lookups stopped at this message's limit; no network change was applied.",
+        { exact: true },
+      )
+      .waitFor();
+    await page.setViewportSize({ width: 1500, height: 1040 });
+    await startControl("Run a checkpoint investigation.");
+    await page
+      .getByRole("button", { name: "Summarize & continue", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Checkpoint queued", exact: true })
+      .waitFor();
+    await releaseControl();
+    await page
+      .getByText(
+        "Resumed the investigation using earlier telemetry and the missing connection details.",
+        { exact: true },
+      )
+      .last()
+      .waitFor();
+    limited = await page.evaluate(() => window.watchmen.assistantStatus());
+    assert.equal(limited.value.error, null);
+    assert.equal(limited.value.busy, false);
+    assert.equal(
+      limited.value.messages.some((m) => m.canContinue),
+      false,
+    );
+    assert.equal(
+      await page
+        .getByRole("button", { name: "Continue investigation", exact: true })
+        .count(),
+      0,
+    );
     const requests = await app.evaluate(() => global.__assistantRequests);
     assert.ok(!JSON.stringify(requests).includes(token));
     assert.ok(!JSON.stringify(requests).includes("RelayBrowser.exe"));
@@ -623,6 +780,10 @@ const { _electron: electron } = require("playwright"),
         "tool activity log",
         "six tool rounds followed by one tool-free final summary",
         "local recap when the model ignores tool-free mode",
+        "exactly two investigation controls; no separate Continue button",
+        "summary controls reuse completed lookups",
+        "active +6 extension and minimum-width layout",
+        "active checkpoint summarizes and resumes once",
         "cancellation during final summary while monitoring continues",
         "no credentials, executable paths or local IPs in model messages",
         "background response while monitoring",
