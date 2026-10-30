@@ -1,5 +1,6 @@
 import { version as appVersion } from "../package.json";
 import React, { useState, useEffect, useMemo } from "react";
+import type { AppOperation } from "./app-operation";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -105,6 +106,11 @@ declare global {
       assistantReject: (id: string) => Promise<Result<AssistantState>>;
       assistantSource: (url: string) => Promise<Result<void>>;
       onAssistant: (fn: (state: AssistantState) => void) => () => void;
+      onAppOperation: (fn: (command: AppOperation) => void) => () => void;
+      acknowledgeAppOperation: (
+        id: string,
+        error?: boolean,
+      ) => Promise<Result<boolean>>;
       onSnapshot: (fn: (s: Snapshot) => void) => () => void;
       updatesStatus: () => Promise<Result<UpdateState>>;
       updatesCheck: () => Promise<Result<UpdateState>>;
@@ -243,6 +249,48 @@ function App() {
     [showAI, setShowAI] = useState(false),
     [connection, setConnection] = useState<string | null>(null),
     [packetSearch, setPacketSearch] = useState("");
+  const [appOperation, setAppOperation] = useState<AppOperation | null>(null);
+  useEffect(() => {
+    if (!viewLoaded || !window.watchmen) return;
+    return window.watchmen.onAppOperation((c) => {
+      if (c.page) {
+        setPage(c.page);
+        setSelected(null);
+        setConnection(null);
+        setSearch("");
+        const groups: Record<string, GroupBy> = {
+          Applications: "app",
+          Destinations: "destination",
+          Locations: "country",
+          Connections: "protocol",
+        };
+        if (groups[c.page]) setGroup(groups[c.page]);
+      }
+      if (c.query !== undefined) setSearch(c.query);
+      if (c.group) setGroup(c.group);
+      if (c.scope) setFilter(c.scope);
+      if (c.direction) setDirection(c.direction);
+      if (c.activity) setLifecycle(c.activity);
+      if (c.sort) setSort(c.sort);
+      if (c.display) setPaused(c.display === "pause");
+      if (c.window) setWindowSize(Number(c.window));
+      if (c.adapter) setAdapter(c.adapter);
+      if (c.connectionId) {
+        setPaused(false);
+        setConnection(c.connectionId);
+        setFilter("all");
+        setLifecycle("all");
+        setDirection("both");
+        setSelected(c.groupId || null);
+        setSearch("");
+      }
+      if (c.page === "Packets") setPacketSearch(c.query || "");
+      setAppOperation(c);
+    });
+  }, [viewLoaded]);
+  useEffect(() => {
+    if (appOperation) window.watchmen?.acknowledgeAppOperation(appOperation.id);
+  }, [appOperation]);
   useEffect(() => {
     const setup = () => setSettings(true);
     window.addEventListener("watchmen-ai-settings", setup);
@@ -522,6 +570,7 @@ function App() {
     }
   };
   const navigate = (name: string) => {
+    setAppOperation(null);
     setPage(name);
     setSelected(null);
     setConnection(null);
@@ -901,11 +950,19 @@ function App() {
                 navigate={navigate}
               />
             ) : page === "Network rules" ? (
-              <NetworkRules />
+              <NetworkRules
+                key={appOperation?.id}
+                initial={appOperation || undefined}
+              />
             ) : page === "Traffic profile" ? (
-              <TrafficProfile />
+              <TrafficProfile
+                key={appOperation?.id}
+                initial={appOperation || undefined}
+              />
             ) : page === "Changes" ? (
               <Changes
+                key={appOperation?.id}
+                initial={appOperation || undefined}
                 preferences={preferences}
                 setup={() => setSettings(true)}
                 inspect={(address) => {
@@ -915,6 +972,8 @@ function App() {
               />
             ) : page === "Packets" ? (
               <PacketInspector
+                key={appOperation?.id}
+                initial={appOperation || undefined}
                 admin={data.admin}
                 initialSearch={packetSearch}
                 elevate={async () => {

@@ -42,7 +42,8 @@ type Trace = {
 };
 type Proposal = {
   id: string;
-  operation: "block" | "unblock";
+  operation: "block" | "unblock" | "app_task";
+  requiresAdmin?: boolean;
   status: string;
   expires: number;
   requiresAcknowledgement: boolean;
@@ -55,6 +56,22 @@ type Proposal = {
     port: number;
     protocol: string;
     countries?: string[];
+    summary?: string;
+    allowLocalNetwork?: boolean;
+    allowUnknown?: boolean;
+    sourceMonth?: string;
+    rangeCount?: number;
+    reviewedRules?: {
+      kind: string;
+      label: string;
+      appPath?: string;
+      address?: string;
+      port?: number;
+      protocol?: string;
+      countries?: string[];
+      allowLocalNetwork?: boolean;
+      allowUnknown?: boolean;
+    }[];
   };
 };
 export type AssistantState = {
@@ -148,7 +165,17 @@ export function AIConsole({
     ["openai", "openrouter"].includes(preferences.ai.provider);
   const providerName =
     preferences?.ai.provider === "openai" ? "OpenAI" : "OpenRouter";
-  const busy = !!state?.busy || !!state?.actionBusy || localBusy;
+  const busy = !!state?.busy || localBusy;
+  async function approveTask(id: string, acknowledged: boolean) {
+    setError("");
+    try {
+      const r = await window.watchmen!.assistantApprove(id, acknowledged);
+      if (r.ok) accept(r.value);
+      else setError(r.error);
+    } catch {
+      setError("The reviewed task could not complete.");
+    }
+  }
   const [controlBusy, setControlBusy] = useState(false);
   async function control(request: () => Promise<Result<AssistantState>>) {
     setControlBusy(true);
@@ -409,7 +436,7 @@ export function AIConsole({
               </span>
               <button
                 className="button"
-                disabled={busy || !state?.messages.length}
+                disabled={busy || state?.actionBusy || !state?.messages.length}
                 onClick={() => run(() => window.watchmen!.assistantReset())}
               >
                 <Trash2 size={13} />
@@ -474,7 +501,7 @@ export function AIConsole({
                   <input
                     type="checkbox"
                     checked={options[key]}
-                    disabled={busy}
+                    disabled={busy || state?.actionBusy}
                     onChange={(e) => configure(key, e.target.checked)}
                   />
                   {label}
@@ -500,7 +527,11 @@ export function AIConsole({
             >
               <div className="console-panel-heading">
                 <h2>
-                  {p.operation === "block" ? "BLOCK REVIEW" : "UNBLOCK REVIEW"}
+                  {p.operation === "app_task"
+                    ? "APP TASK REVIEW"
+                    : p.operation === "block"
+                      ? "BLOCK REVIEW"
+                      : "UNBLOCK REVIEW"}
                 </h2>
                 <span className={"console-action-status " + p.status}>
                   {p.status.replaceAll("_", " ")}
@@ -511,13 +542,21 @@ export function AIConsole({
                 <dl>
                   <dt>Scope</dt>
                   <dd>
-                    {p.operation === "unblock"
-                      ? "Disable one saved " + p.target.kind + " rule"
-                      : p.target.kind === "app"
-                        ? "Entire application / all destinations"
-                        : p.target.kind === "destination"
-                          ? "Destination IP / all applications"
-                          : "One app / IP / protocol / port"}
+                    {p.operation === "app_task"
+                      ? p.target.summary || p.target.label
+                      : p.operation === "unblock"
+                        ? "Disable one saved " + p.target.kind + " rule"
+                        : p.target.kind === "app"
+                          ? "Entire application / all destinations"
+                          : p.target.kind === "destination"
+                            ? "Destination IP / all applications"
+                            : p.target.kind === "onlyApp"
+                              ? "Block all other applications; only this executable is allowed"
+                              : p.target.kind === "onlyRegion"
+                                ? "Block destinations outside the selected countries for all apps"
+                                : p.target.kind === "region"
+                                  ? "Block selected countries for all apps"
+                                  : "One app / IP / protocol / port"}
                   </dd>
                   {p.target.appPath && (
                     <>
@@ -546,6 +585,38 @@ export function AIConsole({
                     </>
                   )}
                 </dl>
+                {p.target.reviewedRules?.map((r, i) => (
+                  <details key={i}>
+                    <summary>{reviewText(r.kind + " / " + r.label)}</summary>
+                    <p>
+                      {reviewText(r.appPath || "")} {r.address} {r.protocol}{" "}
+                      {r.port || ""} {r.countries?.join(", ")}
+                    </p>
+                    {r.kind === "onlyRegion" && (
+                      <p>
+                        Local networks:{" "}
+                        {r.allowLocalNetwork ? "allowed" : "blocked"}; unknown
+                        locations: {r.allowUnknown ? "allowed" : "blocked"}.
+                      </p>
+                    )}
+                  </details>
+                ))}
+                {p.target.kind === "onlyRegion" && (
+                  <p>
+                    Local networks:{" "}
+                    {p.target.allowLocalNetwork ? "allowed" : "blocked"}.
+                    Unknown locations:{" "}
+                    {p.target.allowUnknown ? "allowed" : "blocked"}.
+                  </p>
+                )}
+                {p.target.sourceMonth && (
+                  <p>
+                    DB-IP {p.target.sourceMonth} ·{" "}
+                    {p.target.rangeCount?.toLocaleString()} ranges. Location is
+                    approximate. Applying large policies can take several
+                    minutes; progress appears in Network rules.
+                  </p>
+                )}
                 {p.status === "pending" && (
                   <>
                     <p>
@@ -562,11 +633,10 @@ export function AIConsole({
                             setAck((v) => ({ ...v, [p.id]: e.target.checked }))
                           }
                         />
-                        I understand this disables a broad isolation or regional
-                        policy.
+                        I understand the full scope and impact of this action.
                       </label>
                     )}
-                    {!admin && (
+                    {!admin && p.requiresAdmin !== false && (
                       <p className="console-admin-note">
                         Administrator access is required. After restarting, ask
                         for a fresh review; chat sessions do not survive
@@ -584,23 +654,19 @@ export function AIConsole({
                         <X size={13} />
                         Reject
                       </button>
-                      {admin ? (
+                      {admin || p.requiresAdmin === false ? (
                         <button
                           className="button"
                           disabled={
-                            busy || (p.requiresAcknowledgement && !ack[p.id])
+                            busy ||
+                            state?.actionBusy ||
+                            (p.requiresAcknowledgement && !ack[p.id])
                           }
-                          onClick={() =>
-                            run(() =>
-                              window.watchmen!.assistantApprove(
-                                p.id,
-                                !!ack[p.id],
-                              ),
-                            )
-                          }
+                          onClick={() => approveTask(p.id, !!ack[p.id])}
                         >
                           <Check size={13} />
-                          Approve {p.operation}
+                          Approve{" "}
+                          {p.operation === "app_task" ? "task" : p.operation}
                         </button>
                       ) : (
                         <button
@@ -619,7 +685,7 @@ export function AIConsole({
                     {p.result}
                   </p>
                 )}
-                {p.status !== "pending" && (
+                {p.status !== "pending" && p.operation !== "app_task" && (
                   <button
                     className="text-button"
                     onClick={() => navigate("Network rules")}
@@ -641,9 +707,9 @@ export function AIConsole({
             <div className="console-traces">
               {!state?.trace.length && (
                 <p className="console-tool-empty">
-                  Tool calls appear here as the assistant works. No shell,
-                  arbitrary URLs, file access or bulk network actions are
-                  exposed.
+                  Tool calls appear here as the assistant works. App tasks use
+                  local review cards and file pickers. Settings, credentials and
+                  packet contents stay outside the tool surface.
                 </p>
               )}
               {state?.trace

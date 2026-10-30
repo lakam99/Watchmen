@@ -2,6 +2,7 @@ class ToolError extends Error {}
 const { randomUUID, createHash } = require("node:crypto");
 const { isIP } = require("node:net");
 const path = require("node:path");
+const operations = require("./assistant-operations.cjs");
 const { isPublicIP } = require("./network.cjs");
 const clean = (value, limit = 160) =>
   String(value ?? "")
@@ -46,6 +47,7 @@ const string = (description, maxLength = 160) => ({
   minLength: 1,
 });
 const specs = {
+  ...operations.specs,
   network_status: {
     description:
       "Read current capture health, measured rates and counts. No packet content or addresses.",
@@ -54,7 +56,10 @@ const specs = {
   list_applications: {
     description:
       "Find current applications and their opaque appRef. Select the exact app; identical names can have distinct references.",
-    properties: { query: string("Optional application name filter") },
+    properties: {
+      query: string("Optional application name filter"),
+      offset: string("Zero-based offset from nextOffset", 5),
+    },
   },
   inspect_connections: {
     description:
@@ -62,6 +67,7 @@ const specs = {
     properties: {
       appRef: string("Opaque app reference"),
       query: string("Optional application or destination filter"),
+      offset: string("Zero-based offset from nextOffset", 5),
     },
   },
   traffic_profile: {
@@ -75,12 +81,32 @@ const specs = {
   connection_changes: {
     description:
       "Read grouped open change notices. Novelty is not a maliciousness verdict.",
-    properties: {},
+    properties: {
+      status: {
+        type: "string",
+        enum: ["open", "dismissed", "archived", "all"],
+      },
+      type: {
+        type: "string",
+        enum: [
+          "all",
+          "new_destination",
+          "new_service",
+          "new_country",
+          "traffic_spike",
+        ],
+      },
+      query: string("Application or change filter"),
+    },
   },
   network_rules: {
     description:
       "Refresh saved Watchmen network rules and return opaque ruleRef values and verification state.",
-    properties: {},
+    properties: {
+      query: string("App, label, country or rule kind filter"),
+      status: { type: "string", enum: ["all", "active", "inactive"] },
+      offset: string("Zero-based offset from nextOffset", 5),
+    },
   },
   lookup_destination: {
     description:
@@ -103,12 +129,25 @@ const specs = {
   },
   propose_block: {
     description:
-      "Prepare, but NEVER execute, a persistent block of a current app, connection, or destination. Use appRef for app scope, connectionRef otherwise. The user must approve its exact local review card. No region, only-app or bulk rules.",
+      "Prepare, but NEVER execute, a persistent block or exclusive policy. app/onlyApp use appRef; connection/destination use connectionRef. region/onlyRegion use comma-separated country codes from country_catalog. Broad policies require explicit scope acknowledgement and local approval. onlyApp blocks other apps; onlyRegion blocks destinations outside the selected countries. Local/unknown exceptions must be explicit for onlyRegion.",
     properties: {
-      scope: { type: "string", enum: ["app", "connection", "destination"] },
+      scope: {
+        type: "string",
+        enum: [
+          "app",
+          "connection",
+          "destination",
+          "onlyApp",
+          "region",
+          "onlyRegion",
+        ],
+      },
       targetRef: string("Discovered opaque appRef or connectionRef"),
+      countries: string("Comma-separated ISO country codes", 1000),
+      localNetwork: { type: "string", enum: ["allow", "block"] },
+      unknownLocations: { type: "string", enum: ["allow", "block"] },
     },
-    required: ["scope", "targetRef"],
+    required: ["scope"],
   },
   propose_unblock: {
     description:
@@ -147,7 +186,7 @@ function validate(name, input, options) {
       !Object.hasOwn(s.properties, key) ||
       !p ||
       typeof v !== "string" ||
-      v.length < 1 ||
+      v.length < (p.minLength ?? 1) ||
       v.length > (p.maxLength || 160) ||
       /[\u0000-\u001f]/.test(v) ||
       (p.enum && !p.enum.includes(v))
@@ -165,6 +204,7 @@ class AssistantTools {
     firewall,
     lookup,
     research,
+    operations = {},
     changed = () => {},
     clock = () => Date.now(),
   }) {
@@ -174,15 +214,21 @@ class AssistantTools {
       firewall,
       lookup,
       research,
+      operations,
       changed,
       clock,
     });
     this.reset();
   }
   reset() {
+    this.epoch = (this.epoch || 0) + 1;
     this.apps = new Map();
     this.connections = new Map();
     this.rules = new Map();
+    this.profiles = new Map();
+    this.changes = new Map();
+    this.packets = new Map();
+    this.adapters = new Map();
     this.proposals = [];
     this.events = [];
     this.actionBusy = false;
@@ -227,6 +273,7 @@ class AssistantTools {
     return options.shareIPs && isPublicIP(ip) ? { publicIP: ip } : {};
   }
   discardPending(reason = "Superseded by a newer message.") {
+    this.epoch++;
     for (const p of this.proposals)
       if (p.status === "pending") {
         p.status = "cancelled";
@@ -255,6 +302,7 @@ class AssistantTools {
         this.clock() + 300000,
       ),
       target,
+      requiresAdmin: true,
       requiresAcknowledgement: ["region", "onlyRegion", "onlyApp"].includes(
         target.kind,
       ),
@@ -274,8 +322,53 @@ class AssistantTools {
       note: "Nothing has been changed. The exact target is visible only in the local review card. Approval cannot be supplied by a model tool.",
     };
   }
+  proposeTask(task, target, internal, broad = false) {
+    const result = this.propose("app_task", { rule: target });
+    const p = this.proposals.find((p) => p.id === result.proposalId);
+    p.requiresAdmin = target.requiresAdmin;
+    p.requiresAcknowledgement = broad;
+    p.internal = { ...p.internal, ...internal, task };
+    this.changed();
+    return { ...result, task };
+  }
   async execute(name, args, options, signal) {
     validate(name, args, options);
+    if (args.offset && !/^(0|[1-9]\d{0,4})$/.test(args.offset))
+      throw new ToolError("Choose a valid result offset.");
+    const offset = Number(args.offset || 0);
+    const epoch = this.epoch;
+    const fresh = () => {
+      if (signal?.aborted || epoch !== this.epoch)
+        throw new ToolError(
+          "This operation was cancelled. Request a fresh review.",
+        );
+    };
+    const aborted = (work) =>
+      new Promise((resolve, reject) => {
+        const stop = () => {
+          signal?.removeEventListener("abort", stop);
+          reject(new ToolError("Operation cancelled."));
+        };
+        if (signal?.aborted) return stop();
+        signal?.addEventListener("abort", stop, { once: true });
+        Promise.resolve(work).then(
+          (value) => {
+            signal?.removeEventListener("abort", stop);
+            try {
+              fresh();
+              resolve(value);
+            } catch (e) {
+              reject(e);
+            }
+          },
+          (error) => {
+            signal?.removeEventListener("abort", stop);
+            reject(error);
+          },
+        );
+      });
+    if (Object.hasOwn(operations.specs, name))
+      return operations.execute(this, name, args, options, signal);
     const snapshot = this.snapshot() || {},
       flows = snapshot.flows || [],
       measured = snapshot.tracing === true;
@@ -289,6 +382,12 @@ class AssistantTools {
         adapterDownloadRate: snapshot.rxRate || 0,
         adapterUploadRate: snapshot.txRate || 0,
         profileAvailable: snapshot.profileStatus?.available === true,
+        adapters: (snapshot.adapters || []).slice(0, 30).map((a) => ({
+          adapterRef: this.ref(this.adapters, "adapter_", a.id, { id: a.id }),
+          name: clean(a.name),
+          downloadRate: a.rxRate,
+          uploadRate: a.txRate,
+        })),
         limits:
           "Adapter rates may include VPN overlap. Per-app byte rates are unknown when detailed capture is off.",
       };
@@ -320,7 +419,9 @@ class AssistantTools {
         capturedAt: snapshot.timestamp,
         applications: [...apps.values()]
           .sort((a, b) => b.connections - a.connections)
-          .slice(0, 30),
+          .slice(offset, offset + 30),
+        total: apps.size,
+        nextOffset: offset + 30 < apps.size ? String(offset + 30) : null,
         truncated: apps.size > 30,
       };
     }
@@ -338,7 +439,8 @@ class AssistantTools {
         capturedAt: snapshot.timestamp,
         tracingEnabled: measured,
         total: selected.length,
-        connections: selected.slice(0, 30).map((f) => ({
+        nextOffset: offset + 30 < selected.length ? String(offset + 30) : null,
+        connections: selected.slice(offset, offset + 30).map((f) => ({
           connectionRef: this.connectionRef(f),
           appRef: this.appRef(f),
           app: clean(f.app),
@@ -371,6 +473,7 @@ class AssistantTools {
         totals: s.totals,
         eventsLost: s.eventsLost,
         applications: s.applications.slice(0, 20).map((a) => ({
+          profileRef: this.ref(this.profiles, "profile_", a.id, { id: a.id }),
           app: clean(a.name),
           destinations: a.destinations,
           sessions: a.sessions,
@@ -378,6 +481,24 @@ class AssistantTools {
           sent: a.sent,
           measuredMs: a.measuredMs,
           observedMs: a.observedMs,
+        })),
+        destinations: (s.destinations || []).slice(0, 20).map((d) => ({
+          country: clean(d.country),
+          owner: clean(d.org),
+          scope: d.scope,
+          received: d.received,
+          sent: d.sent,
+          observations: d.observations,
+          measuredMs: d.measuredMs,
+          applications: d.applications,
+          services: d.services,
+          ...this.publicAddress(d.address, options),
+        })),
+        daily: (s.daily || []).slice(-30),
+        protocols: (s.protocols || []).slice(0, 20),
+        countries: (s.countries || []).slice(0, 30).map((c) => ({
+          country: clean(c.country),
+          destinations: c.destinations,
         })),
         limits:
           "Historical byte totals cover measured capture periods, not all elapsed time. No executable paths or destination addresses are shared.",
@@ -387,15 +508,17 @@ class AssistantTools {
       const store = this.history();
       if (!store) throw new ToolError("Traffic change history is unavailable.");
       const s = store.anomalies.list({
-        status: "open",
-        type: "all",
-        search: "",
+        status: args.status || "open",
+        type: args.type || "all",
+        search: args.query || "",
       });
       return {
         counts: s.counts,
         reviewWindowHours: s.reviewWindowHours,
         learning: s.learning,
         changes: s.alerts.slice(0, 20).map((a) => ({
+          changeRef: this.ref(this.changes, "change_", a.id, { id: a.id }),
+          status: a.status,
           type: a.type,
           app: clean(a.app_name),
           severity: a.severity,
@@ -409,13 +532,26 @@ class AssistantTools {
     }
     if (name === "network_rules") {
       const s = await this.firewall.refresh();
+      const rows = s.rules.filter(
+        (r) =>
+          (!args.query ||
+            [r.label, r.kind, r.appPath, ...(r.countries || [])]
+              .join(" ")
+              .toLowerCase()
+              .includes(args.query.toLowerCase())) &&
+          (!args.status ||
+            args.status === "all" ||
+            (args.status === "active" ? r.enabled : !r.enabled)),
+      );
       return {
         updatedAt: s.updatedAt,
         verified: s.isolationVerified === true,
         error: s.error
           ? "Windows rule refresh failed; do not assume enforcement."
           : null,
-        rules: s.rules.slice(0, 40).map((r) => ({
+        total: rows.length,
+        nextOffset: offset + 40 < rows.length ? String(offset + 40) : null,
+        rules: rows.slice(offset, offset + 40).map((r) => ({
           ruleRef: this.ref(this.rules, "rule_", r.id, { id: r.id }),
           kind: r.kind,
           app: r.appPath
@@ -464,16 +600,42 @@ class AssistantTools {
       return this.research(query, signal);
     }
     if (name === "propose_block") {
-      const f = this.resolve(args.targetRef, args.scope === "app");
-      return this.propose(
-        "block",
-        await this.firewall.prepare({ kind: args.scope, flowId: f.id }),
-      );
+      const region = ["region", "onlyRegion"].includes(args.scope);
+      if (
+        (region && args.targetRef) ||
+        (!region &&
+          (args.countries || args.localNetwork || args.unknownLocations)) ||
+        (args.scope === "region" &&
+          (args.localNetwork || args.unknownLocations))
+      )
+        throw new ToolError("Arguments do not match this rule scope.");
+      if (
+        args.scope === "onlyRegion" &&
+        (!args.localNetwork || !args.unknownLocations)
+      )
+        throw new ToolError(
+          "Specify both local-network and unknown-location exceptions for country-only mode.",
+        );
+      const input = { kind: args.scope };
+      if (region) {
+        if (!args.countries) throw new ToolError("Select country codes first.");
+        input.countries = args.countries.split(",").map((c) => c.trim());
+        input.allowLocalNetwork = args.localNetwork === "allow";
+        input.allowUnknown = args.unknownLocations === "allow";
+      } else
+        input.flowId = this.resolve(
+          args.targetRef,
+          ["app", "onlyApp"].includes(args.scope),
+        ).id;
+      const preview = await aborted(this.firewall.prepare(input));
+      fresh();
+      return this.propose("block", preview);
     }
     if (name === "propose_unblock") {
       const id = this.rules.get(args.ruleRef)?.value.id;
       if (!id) throw new ToolError("Inspect saved rules before selecting one.");
       const s = await this.firewall.refresh();
+      fresh();
       if (s.error)
         throw new ToolError(
           "Refresh network rules successfully before proposing changes.",
@@ -496,7 +658,7 @@ class AssistantTools {
       throw new ToolError(
         "Acknowledge the broad policy scope before approving.",
       );
-    if (!this.snapshot()?.admin)
+    if (p.requiresAdmin !== false && !this.snapshot()?.admin)
       throw new ToolError(
         "Restart Watchmen as administrator and request a fresh review to change rules.",
       );
@@ -504,6 +666,11 @@ class AssistantTools {
     p.status = "running";
     this.changed();
     try {
+      if (p.operation === "app_task") {
+        p.result = await operations.approve(this, p);
+        p.status = "completed";
+        return this.views().find((v) => v.id === id);
+      }
       let result;
       if (p.operation === "block")
         result = await this.firewall.apply(p.internal.previewId);
@@ -529,7 +696,11 @@ class AssistantTools {
                 identity({ processPath: p.target.appPath }) &&
               (r.address || "") === (p.target.address || "") &&
               (r.protocol || "") === (p.target.protocol || "") &&
-              (r.port || 0) === (p.target.port || 0),
+              (r.port || 0) === (p.target.port || 0) &&
+              JSON.stringify([...(r.countries || [])].sort()) ===
+                JSON.stringify([...(p.target.countries || [])].sort()) &&
+              r.allowLocalNetwork === p.target.allowLocalNetwork &&
+              r.allowUnknown === p.target.allowUnknown,
       );
       const confirmed =
         result.isolationVerified === true &&
@@ -551,13 +722,17 @@ class AssistantTools {
           : "Windows returned a response, but the requested target state is not confirmed. Refresh Network rules.";
     } catch (e) {
       p.status = "failed";
-      p.result = clean(e.message, 300);
+      p.result =
+        p.operation === "app_task" && !(e instanceof ToolError)
+          ? "The app task could not complete. Inspect its Watchmen view for details."
+          : clean(e.message, 300);
     } finally {
       this.actionBusy = false;
       this.events.push({
         actionId: p.id,
         operation: p.operation,
         scope: p.target.kind,
+        task: p.internal.task,
         status: p.status,
         at: this.clock(),
       });

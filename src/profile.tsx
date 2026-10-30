@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { AppOperation } from "./app-operation";
 import {
   Database,
   Layers,
@@ -105,18 +106,20 @@ const date = (n: number) =>
     hour: "numeric",
     minute: "2-digit",
   });
-export function TrafficProfile() {
-  const [range, setRange] = useState("all"),
-    [query, setQuery] = useState(""),
-    [search, setSearch] = useState(""),
-    [tab, setTab] = useState("applications"),
+export function TrafficProfile({ initial }: { initial?: AppOperation }) {
+  const [range, setRange] = useState(initial?.range || "all"),
+    [query, setQuery] = useState(initial?.query || ""),
+    [search, setSearch] = useState(initial?.query || ""),
+    [tab, setTab] = useState(initial?.tab || "applications"),
     [data, setData] = useState<ProfileSummary | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
-    [selected, setSelected] = useState<string | null>(null),
+    [selected, setSelected] = useState<string | null>(
+      initial?.profileId || null,
+    ),
     [detail, setDetail] = useState<ProfileDetail | null>(null),
     [revision, setRevision] = useState(0),
-    [metric, setMetric] = useState("observations");
+    [metric, setMetric] = useState(initial?.metric || "observations");
   useEffect(() => {
     const timer = setTimeout(() => setSearch(query), 220);
     return () => clearTimeout(timer);

@@ -114,6 +114,16 @@ export function RuleProvider({
     [busy, setBusy] = useState(false),
     [acknowledged, setAcknowledged] = useState(false),
     [message, setMessage] = useState("");
+  useEffect(
+    () =>
+      window.watchmen?.onAppOperation((c) => {
+        if (c.ruleTask === "minimize") setMinimized(true);
+        if (c.ruleTask === "show") setMinimized(false);
+        if (c.ruleTask === "dismiss" && !state?.busy)
+          setDismissedTask(state?.job?.id || "");
+      }),
+    [state?.busy, state?.job?.id],
+  );
   useEffect(() => {
     let active = true;
     const poll = async () => {
@@ -745,7 +755,11 @@ export function RuleActions({
     </div>
   );
 }
-export function NetworkRules() {
+export function NetworkRules({
+  initial,
+}: {
+  initial?: import("./app-operation").AppOperation;
+}) {
   const {
     state,
     catalog,
@@ -764,8 +778,8 @@ export function NetworkRules() {
     [countryMode, setCountryMode] = useState("region"),
     [allowLocalNetwork, setAllowLocalNetwork] = useState(true),
     [allowUnknown, setAllowUnknown] = useState(false),
-    [search, setSearch] = useState(""),
-    [filter, setFilter] = useState("all");
+    [search, setSearch] = useState(initial?.query || ""),
+    [filter, setFilter] = useState(initial?.ruleStatus || "all");
   const rules = (state?.rules || []).filter(
     (r) =>
       (filter === "all" || (filter === "active" ? r.enabled : !r.enabled)) &&

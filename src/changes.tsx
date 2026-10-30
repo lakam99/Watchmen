@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { AppOperation } from "./app-operation";
 import {
   TriangleAlert,
   Sparkles,
@@ -64,16 +65,20 @@ export function Changes({
   preferences,
   setup,
   inspect,
+  initial,
 }: {
   preferences: PreferencesStatus | null;
   setup: () => void;
   inspect: (address: string) => void;
+  initial?: AppOperation;
 }) {
   const [data, setData] = useState<ChangeFeed | null>(null),
-    [selected, setSelected] = useState<string | null>(null),
-    [status, setStatus] = useState("open"),
-    [type, setType] = useState("all"),
-    [search, setSearch] = useState(""),
+    [selected, setSelected] = useState<string | null>(
+      initial?.changeId || null,
+    ),
+    [status, setStatus] = useState(initial?.changeStatus || "open"),
+    [type, setType] = useState(initial?.changeType || "all"),
+    [search, setSearch] = useState(initial?.query || ""),
     [revision, setRevision] = useState(0),
     [error, setError] = useState("");
   useEffect(() => {

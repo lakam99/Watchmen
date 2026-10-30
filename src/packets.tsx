@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { AppOperation } from "./app-operation";
 import { rowAI } from "./row-overview";
 import {
   Radio,
@@ -50,19 +51,36 @@ export function PacketInspector({
   admin,
   elevate,
   initialSearch = "",
+  initial,
 }: {
   admin: boolean;
   elevate: () => void;
   initialSearch?: string;
+  initial?: AppOperation;
 }) {
   const [data, setData] = useState<PacketState | null>(null),
     [search, setSearch] = useState(initialSearch),
-    [direction, setDirection] = useState("all"),
+    [direction, setDirection] = useState(
+      initial?.direction === "both" ? "all" : initial?.direction || "all",
+    ),
     [seconds, setSeconds] = useState(10),
     [selected, setSelected] = useState<Packet | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!initial?.packetId) return;
+    let active = true;
+    window.watchmen?.packetDetail(initial.packetId).then((r) => {
+      if (active && r) {
+        if (r.ok) setSelected(r.value);
+        else setError(r.error);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [initial?.packetId]);
   useEffect(() => {
     let active = true;
     const refresh = async () => {

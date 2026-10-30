@@ -1,6 +1,14 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.6/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.7/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.7 validation
+
+- The fixed operational tool surface covers local monitor navigation/filtering/inspection, detailed profile and change evidence, packet header metadata, capture/import/export tasks, application reveal/picker, broad geographic/exclusive policies, saved-rule enable/remove/reviewed bulk disable, change dismissal/reopen, official reference pages and guarded updater actions. App settings and credentials are excluded; packet bodies, raw headers and decoded summaries remain local.
+- All 122 unit tests pass. Fifteen new tests cover the capability allowlist and invalid arguments/settings/path rejection; private metadata exclusion; stale packet targets; fixed task adapters; single-use/admin/broad approval guards; executable picker followed by a second exact review; cancelled/late geographic preparation; rule fingerprints and frozen bulk targets; exact country-policy verification; grouped changes; uncached live operations; renderer acknowledgements; progress/cancellation chat during an approved task; later result pages/cleared searches; and saving a reviewed change explanation. Existing firewall/provider/investigation tests remain passing.
+- Packaged operational workflows pass separately for OpenAI and OpenRouter: production provider adapters and assistant tools create an exact capture review, approval invokes the simulated service once, the real preload/React bridge opens decoded content locally and acknowledges monitor/profile/rule filters, and a non-admin export review handles a cancelled save. Screenshots of the local task card and packet viewer were inspected. No real firewall mutation, UAC, installer or paid model request was used. Native collector and frontend builds pass. The existing packaged assistant regression also passes with both providers, including reviewed block/unblock, encrypted UI configuration, research privacy, the two investigation controls, cancellation/background monitoring and restart.
+
+Evidence: `test-results/unit-0.10.7.txt`, `operations-smoke-openai-packaged.json`, `operations-smoke-openrouter-packaged.json`, and `operations-review-openai.png` / `operations-local-packet-openai.png` (synthetic traffic and packet body).
 
 ## Version 0.10.6 validation
 

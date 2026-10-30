@@ -476,6 +476,11 @@ class Anomalies {
       "UPDATE alerts SET status='dismissed' WHERE status='open'",
     ).run().changes;
   }
+  openIds() {
+    return this.q("SELECT id FROM alerts WHERE status='open'")
+      .all()
+      .map((row) => row.id);
+  }
   explainPayload(id, includeIPs = false) {
     const row = this.q("SELECT * FROM alerts WHERE id=?").get(String(id));
     if (!row) throw new Error("Select a saved alert.");

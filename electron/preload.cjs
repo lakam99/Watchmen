@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("watchmen", {
+  onAppOperation: (callback) => {
+    const fn = (_, command) => callback(command);
+    ipcRenderer.on("app-operation", fn);
+    return () => ipcRenderer.removeListener("app-operation", fn);
+  },
+  acknowledgeAppOperation: (id, error = false) =>
+    ipcRenderer.invoke("app-operation-ack", id, error),
   onSnapshot: (callback) => {
     const fn = (_, data) => callback(data);
     ipcRenderer.on("snapshot", fn);

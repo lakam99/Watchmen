@@ -227,7 +227,7 @@ safeHandle("updates-status", () => updates.status());
 safeHandle("updates-check", () => updates.check());
 safeHandle("updates-download", () => updates.download());
 safeHandle("updates-configure", (input) => updates.configure(input));
-safeHandle("updates-install", async () => {
+async function installUpdate() {
   await require("./update-install-guard.cjs").assertNoOtherInstances([
     process.pid,
     ...app.getAppMetrics().map((metric) => metric.pid),
@@ -243,7 +243,8 @@ safeHandle("updates-install", async () => {
     );
   }
   return updates.install();
-});
+}
+safeHandle("updates-install", installUpdate);
 safeHandle("updates-release", () => shell.openExternal(releaseUrl));
 safeHandle("preferences", () => preferences.status());
 safeHandle("view-settings", () => localSettings.get("monitor"));
@@ -264,7 +265,7 @@ safeHandle("firewall-toggle", (id, enabled) => firewall.toggle(id, enabled));
 safeHandle("firewall-forget", (id) => firewall.forget(id));
 safeHandle("firewall-cancel", () => firewall.cancel());
 safeHandle("firewall-unblock-all", () => firewall.unblockAll());
-safeHandle("firewall-pick-app", async (only) => {
+async function pickApplication(only) {
   const result = await dialog.showOpenDialog(win, {
     title:
       only === true
@@ -279,7 +280,8 @@ safeHandle("firewall-pick-app", async (only) => {
     path.basename(result.filePaths[0]),
     only === true,
   );
-});
+}
+safeHandle("firewall-pick-app", pickApplication);
 safeHandle("theme", async (theme) => {
   const status = await preferences.setTheme(theme);
   nativeTheme.themeSource = theme;
@@ -384,7 +386,7 @@ safeHandle("packets-status", () => packets.status());
 safeHandle("packets-start", (seconds) => packets.start(seconds));
 safeHandle("packets-stop", () => packets.stop());
 safeHandle("packets-detail", (id) => packets.detail(id));
-safeHandle("packets-import", async () => {
+async function importCapture() {
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     title: "Open a local packet capture",
     properties: ["openFile"],
@@ -394,7 +396,8 @@ safeHandle("packets-import", async () => {
   });
   if (canceled) return null;
   return packets.importFile(filePaths[0]);
-});
+}
+safeHandle("packets-import", importCapture);
 safeHandle("ai-cancel", () => {
   insights.cancel();
   return true;
@@ -420,8 +423,7 @@ ipcMain.handle("locations", async (event, value) => {
   send();
   return locationsEnabled;
 });
-ipcMain.handle("export", async (event) => {
-  assertSender(event);
+async function exportSession() {
   if (!latest) return { error: "No traffic snapshot available yet." };
   const { filePath, canceled } = await dialog.showSaveDialog(win, {
     defaultPath:
@@ -444,6 +446,10 @@ ipcMain.handle("export", async (event) => {
     ),
   );
   return { ok: true };
+}
+ipcMain.handle("export", async (event) => {
+  assertSender(event);
+  return exportSession();
 });
 ipcMain.handle("open-path", async (event, pid) => {
   assertSender(event);
@@ -454,8 +460,15 @@ ipcMain.handle("open-path", async (event, pid) => {
   }
   return false;
 });
-ipcMain.handle("elevate", async (event) => {
-  assertSender(event);
+async function restartElevated() {
+  if (
+    firewall?.busy ||
+    packets?.status()?.active ||
+    packets?.status()?.processing
+  )
+    throw new Error(
+      "Finish or cancel the network-rule task and stop packet capture before restarting.",
+    );
   const quote = (s) => "'" + s.replace(/'/g, "''") + "'";
   const args = app.isPackaged
     ? ""
@@ -477,7 +490,20 @@ ipcMain.handle("elevate", async (event) => {
       if (code === 0) app.quit();
     });
   });
+}
+ipcMain.handle("elevate", async (event) => {
+  assertSender(event);
+  return restartElevated();
 });
+const viewBridge = new (require("./app-view-bridge.cjs").AppViewBridge)(
+  (command) => {
+    if (!win || win.isDestroyed()) throw new Error("Monitor unavailable.");
+    win.webContents.send("app-operation", command);
+  },
+);
+safeHandle("app-operation-ack", (id, error) =>
+  viewBridge.acknowledge(id, error),
+);
 app.whenReady().then(async () => {
   const workspace = await resolveWorkspace({
     packaged: app.isPackaged,
@@ -554,6 +580,28 @@ app.whenReady().then(async () => {
     snapshot: current,
     history: () => trafficStore,
     firewall,
+    operations: {
+      packets,
+      updates,
+      showView: (command, signal) => viewBridge.request(command, signal),
+      importCapture,
+      exportSession,
+      pickApplication,
+      restartElevated,
+      installUpdate,
+      revealApplication: (flow) => shell.showItemInFolder(flow.processPath),
+      historyChanged: () => send(),
+      aiIdentity: () => {
+        const { provider, model } = preferences.status().ai;
+        return { provider, model };
+      },
+      openOfficial: (task) =>
+        shell.openExternal(
+          task === "open_release"
+            ? releaseUrl
+            : "https://db-ip.com/db/lite.php",
+        ),
+    },
     fetch: (url, options) => net.fetch(url, options),
     changed: (state) => {
       if (win && !win.isDestroyed())

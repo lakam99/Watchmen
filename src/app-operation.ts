@@ -1,0 +1,26 @@
+import type { GroupBy } from "./model";
+export type AppOperation = {
+  id: string;
+  page?: string;
+  query?: string;
+  group?: GroupBy;
+  scope?: string;
+  direction?: string;
+  activity?: string;
+  sort?: string;
+  display?: "pause" | "resume";
+  window?: string;
+  adapter?: string;
+  connectionId?: string;
+  groupId?: string;
+  profileId?: string;
+  changeId?: string;
+  packetId?: string;
+  range?: string;
+  tab?: string;
+  changeStatus?: string;
+  changeType?: string;
+  metric?: string;
+  ruleStatus?: string;
+  ruleTask?: "minimize" | "show" | "dismiss";
+};

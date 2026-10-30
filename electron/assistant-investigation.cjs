@@ -54,6 +54,7 @@ class Investigation {
       !entry.result ||
       entry.result.error ||
       entry.result.skipped ||
+      entry.result.cacheable === false ||
       (entry.result.truncated && !entry.result.applications)
     )
       return;

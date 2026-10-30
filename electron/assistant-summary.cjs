@@ -20,6 +20,34 @@ function localSummary(entries) {
       ? value.toLocaleString("en-US")
       : "unknown";
   for (const { tool: name, result } of latest.values()) {
+    if (name === "propose_app_action" && result.proposalId)
+      lines.push(
+        `An app task review (${clean(result.task, 70)}) was prepared; its local card shows the current approval status. A proposal is not execution.`,
+      );
+    if (name === "packet_headers")
+      lines.push(
+        `Read ${number(result.packets?.length)} packet header samples. Decoded packet contents remain local.`,
+      );
+    if (name === "profile_detail")
+      lines.push(
+        `Read ${number(result.endpoints?.length)} saved service/destination samples for ${clean(result.app, 70)}. Historical bytes cover measured periods only.`,
+      );
+    if (name === "change_detail")
+      lines.push(
+        `Read saved ${clean(result.type, 50)} evidence for ${clean(result.app, 70)}; novelty is not a threat verdict.`,
+      );
+    if (name === "operation_status")
+      lines.push(
+        `Read task progress: network task ${result.network?.busy ? "running" : "idle"}, capture ${result.packets?.active ? "active" : "idle"}, updater ${clean(result.update?.phase || "unknown", 30)}.`,
+      );
+    if (name === "show_view")
+      lines.push(
+        `The monitor acknowledged a display operation for ${clean(result.view, 50)}.`,
+      );
+    if (name === "cancel_network_task")
+      lines.push(
+        "Requested cancellation of the active cancellable rule task; check rollback progress before assuming completion.",
+      );
     if (name === "network_status")
       lines.push(
         `The snapshot contained ${number(result.connections)} active connections. Detailed per-app capture was ${result.tracingEnabled ? "on" : "off; per-app bytes are unavailable"}.`,
