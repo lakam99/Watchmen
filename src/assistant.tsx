@@ -133,7 +133,10 @@ export function AIConsole({
       transcript.current.scrollTop = transcript.current.scrollHeight;
   }, [state?.messages.length, state?.phase]);
   const ready =
-    preferences?.hasToken && preferences.ai.provider === "openrouter";
+    preferences?.hasToken &&
+    ["openai", "openrouter"].includes(preferences.ai.provider);
+  const providerName =
+    preferences?.ai.provider === "openai" ? "OpenAI" : "OpenRouter";
   const busy = !!state?.busy || !!state?.actionBusy || localBusy;
   async function run(request: () => Promise<Result<AssistantState>>) {
     setError("");
@@ -191,15 +194,17 @@ export function AIConsole({
               <h2>COMMS / AI ASSISTANT</h2>
             </div>
             <span className="console-link-state">
-              {ready ? preferences?.ai.model : "NOT CONFIGURED"}
+              {ready
+                ? `${providerName} / ${preferences?.ai.model}`
+                : "NOT CONFIGURED"}
             </span>
           </div>
           <div className="console-session-note">
             <ShieldCheck size={14} />
             <span>
-              Session only. Messages go to OpenRouter as written. Tool output
-              excludes executable paths, private IPs and packet content. Public
-              destination IPs are optional.
+              Session only. Messages go to {providerName} as written. Tool
+              output excludes executable paths, private IPs and packet content.
+              Public destination IPs are optional.
             </span>
           </div>
           <div
@@ -279,7 +284,8 @@ export function AIConsole({
             {!ready && (
               <div className="console-setup">
                 <span>
-                  Configure an OpenRouter token and a model with tool support.
+                  Configure an OpenAI or OpenRouter token and a model with tool
+                  support.
                 </span>
                 <button className="button" onClick={setup}>
                   <Settings2 size={14} />
@@ -391,8 +397,8 @@ export function AIConsole({
               ))}
               <p>
                 Changing permissions clears this session. IP lookups send a
-                public IP to ipwho.is. Web research sends a public query through
-                OpenRouter and may add search charges. Enabling a permission
+                public IP to ipwho.is. Web research sends a public query through{" "}
+                {providerName} and may add search charges. Enabling a permission
                 alone does not make a lookup.
               </p>
               <p>

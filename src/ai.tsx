@@ -191,8 +191,8 @@ export function AISettings({
       )}
       <p>
         Choose an OpenAI preset or enter a custom model ID. Availability and
-        pricing depend on your provider and account. The AI console requires
-        OpenRouter and a model with tool support.
+        pricing depend on your provider and account. The AI console supports
+        OpenAI and OpenRouter models with tool support.
       </p>
       {config.provider === "compatible" && (
         <label className="field-label">

@@ -46,6 +46,23 @@ const call = (name, args = {}, id = randomUUID()) => ({
 });
 const lastTool = (body) =>
   JSON.parse(body.messages.filter((m) => m.role === "tool").at(-1).content);
+const openAIReply = (output, status = "completed") =>
+  new Response(JSON.stringify({ status, output }));
+const openAIText = (text, annotations = []) => ({
+  type: "message",
+  id: "msg_" + randomUUID(),
+  role: "assistant",
+  status: "completed",
+  content: [{ type: "output_text", text, annotations }],
+});
+const openAICall = (name, args = {}, call_id = "call_" + randomUUID()) => ({
+  type: "function_call",
+  id: "fc_" + randomUUID(),
+  call_id,
+  name,
+  arguments: JSON.stringify(args),
+  status: "completed",
+});
 function fixture({
   fetch,
   options = {},
@@ -53,6 +70,7 @@ function fixture({
   admin = true,
   verified = true,
   partial = false,
+  provider = "openrouter",
 } = {}) {
   let now = Date.now();
   const snapshot = {
@@ -111,8 +129,11 @@ function fixture({
       (permissions = normalize("assistant", { ...permissions, ...input })),
   };
   const credentials = {
-    provider: "openrouter",
-    baseUrl: "https://openrouter.ai/api/v1",
+    provider,
+    baseUrl:
+      provider === "openai"
+        ? "https://api.openai.com/v1"
+        : "https://openrouter.ai/api/v1",
     model: "fixture/tool-model",
     token,
   };
@@ -645,4 +666,285 @@ test("untrusted local lookup exceptions do not leak hidden addresses into the ne
   const state = await f.manager.send("Look up the first public destination.");
   assert.equal(state.error, null);
   assert.equal(state.trace.at(-1).status, "failed");
+});
+
+test("OpenAI Responses replays call IDs and encrypted reasoning, and scoped block/unblock still require approval", async () => {
+  const reasoning = {
+    type: "reasoning",
+    id: "rs_fixture",
+    summary: [],
+    encrypted_content: "encrypted-reasoning-fixture",
+  };
+  const f = fixture({
+    provider: "openai",
+    fetch: (body, url, init) => {
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      assert.equal(init.cache, "no-store");
+      assert.equal(init.redirect, "error");
+      assert.equal(body.store, false);
+      assert.equal(body.previous_response_id, undefined);
+      assert.equal(body.plugins, undefined);
+      assert.equal(body.provider, undefined);
+      assert.ok(
+        body.tools.every(
+          (t) =>
+            t.type === "function" &&
+            t.strict === false &&
+            t.parameters.additionalProperties === false,
+        ),
+      );
+      assert.equal(
+        body.tools.some((t) => t.name === "search_web"),
+        false,
+      );
+      const userIndex = body.input.findLastIndex((i) => i.role === "user");
+      const prompt = body.input[userIndex].content;
+      const outputs = body.input
+        .slice(userIndex + 1)
+        .filter((i) => i.type === "function_call_output");
+      for (const output of outputs)
+        assert.ok(
+          body.input.some(
+            (i) => i.type === "function_call" && i.call_id === output.call_id,
+          ),
+        );
+      const last = outputs.length ? JSON.parse(outputs.at(-1).output) : null;
+      if (/unblock/.test(prompt)) {
+        if (!last) return openAIReply([openAICall("network_rules")]);
+        if (last.rules)
+          return openAIReply([
+            openAICall("propose_unblock", { ruleRef: last.rules[0].ruleRef }),
+          ]);
+        return openAIReply([openAIText("Unblock is awaiting your approval.")]);
+      }
+      if (!last)
+        return openAIReply([reasoning, openAICall("list_applications")]);
+      assert.ok(
+        body.input.some(
+          (i) =>
+            i.type === "reasoning" &&
+            i.encrypted_content === reasoning.encrypted_content,
+        ),
+      );
+      if (last.applications)
+        return openAIReply([
+          openAICall("propose_block", {
+            scope: "app",
+            targetRef: last.applications[0].appRef,
+          }),
+        ]);
+      return openAIReply([
+        openAIText("Block is awaiting your approval. " + token),
+      ]);
+    },
+  });
+  let result = await f.manager.send("Prepare a block");
+  assert.equal(result.error, null);
+  assert.equal(f.native.length, 0);
+  assert.equal(result.proposals[0].target.appPath, "C:\\Apps\\Browser.exe");
+  assert.match(result.messages.at(-1).text, /\[redacted\]/);
+  result = await f.manager.approve(result.proposals[0].id, false);
+  assert.equal(result.proposals[0].status, "completed");
+  assert.equal(f.saved()[0].enabled, true);
+  result = await f.manager.send("Prepare an unblock");
+  assert.equal(result.error, null);
+  assert.equal(f.saved()[0].enabled, true);
+  const pending = result.proposals.find((p) => p.status === "pending");
+  result = await f.manager.approve(pending.id, false);
+  assert.equal(
+    result.proposals.find((p) => p.id === pending.id).status,
+    "completed",
+  );
+  assert.equal(f.saved()[0].enabled, false);
+  const bodies = JSON.stringify(f.requests.map((r) => r.body));
+  for (const secret of [token, "C:\\Apps", "10.0.0.5", "8.8.8.8"])
+    assert.ok(!bodies.includes(secret));
+  assert.ok(
+    !JSON.stringify(f.manager.status()).includes("encrypted-reasoning-fixture"),
+  );
+});
+
+test("OpenAI research uses a separate opt-in Responses search and validated cited sources", async () => {
+  const f = fixture({
+    provider: "openai",
+    options: { webSearch: true },
+    fetch: (body, url) => {
+      assert.equal(url, "https://api.openai.com/v1/responses");
+      if (body.tools.some((t) => t.type === "web_search")) {
+        assert.equal(body.tools.length, 1);
+        assert.equal(body.tools[0].external_web_access, true);
+        assert.equal(body.max_tool_calls, 1);
+        assert.equal(body.tool_choice, "required");
+        assert.equal(body.input.length, 2);
+        const sent = JSON.stringify(body);
+        for (const privateValue of [
+          "list_applications",
+          "hostActionEvents",
+          "PRIVATE_CHAT_MARKER",
+          token,
+        ])
+          assert.ok(!sent.includes(privateValue));
+        return openAIReply([
+          {
+            type: "web_search_call",
+            id: "ws_fixture",
+            status: "completed",
+            action: { type: "search", query: "QUIC transport specification" },
+          },
+          openAIText("QUIC is specified in RFC 9000.", [
+            {
+              type: "url_citation",
+              url: "https://www.rfc-editor.org/rfc/rfc9000",
+              title: "QUIC",
+              start_index: 0,
+              end_index: 30,
+            },
+            {
+              type: "url_citation",
+              url: "https://127.0.0.1/private",
+              title: "Invalid",
+              start_index: 0,
+              end_index: 5,
+            },
+          ]),
+        ]);
+      }
+      if (!body.input.some((i) => i.type === "function_call_output"))
+        return openAIReply([
+          openAICall("search_web", { query: "QUIC transport specification" }),
+        ]);
+      return openAIReply([
+        openAIText("The cited specification describes QUIC."),
+      ]);
+    },
+  });
+  const result = await f.manager.send("PRIVATE_CHAT_MARKER Research QUIC.");
+  assert.equal(result.error, null);
+  assert.equal(result.trace[0].status, "completed");
+  assert.deepEqual(result.messages.at(-1).sources, [
+    { url: "https://www.rfc-editor.org/rfc/rfc9000", title: "QUIC" },
+  ]);
+  assert.equal(f.native.length, 0);
+});
+
+test("OpenAI incomplete/refused/malformed or unauthorized built-in tool responses cannot execute local tasks", async () => {
+  const cases = [
+    () => openAIReply([openAICall("list_applications")], "incomplete"),
+    () => openAIReply([{ type: "computer_call", call_id: "forged" }]),
+    () =>
+      openAIReply([
+        openAIText(""),
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "refusal", refusal: token }],
+        },
+      ]),
+    () =>
+      openAIReply([
+        openAICall("network_status", {}, "duplicate"),
+        openAICall("network_status", {}, "duplicate"),
+      ]),
+    () =>
+      openAIReply([
+        {
+          type: "function_call",
+          call_id: "invalid",
+          name: "network_status",
+          arguments: {},
+        },
+      ]),
+    () =>
+      new Response(JSON.stringify({ error: { message: token } }), {
+        status: 429,
+      }),
+  ];
+  for (const fetch of cases) {
+    const f = fixture({ provider: "openai", fetch });
+    const result = await f.manager.send("Inspect traffic");
+    assert.ok(result.error);
+    assert.equal(result.proposals.length, 0);
+    assert.equal(f.native.length, 0);
+    assert.ok(!JSON.stringify(result).includes(token));
+  }
+});
+
+test("OpenAI research without a completed search is not presented as a live finding", async () => {
+  const f = fixture({
+    provider: "openai",
+    options: { webSearch: true },
+    fetch: (body) => {
+      if (body.tools.some((t) => t.type === "web_search"))
+        return openAIReply([
+          openAIText("Invented live finding", [
+            {
+              type: "url_citation",
+              url: "https://example.com",
+              title: "Example",
+            },
+          ]),
+        ]);
+      if (!body.input.some((i) => i.type === "function_call_output"))
+        return openAIReply([
+          openAICall("search_web", { query: "QUIC reference" }),
+        ]);
+      const output = JSON.parse(
+        body.input.filter((i) => i.type === "function_call_output").at(-1)
+          .output,
+      );
+      assert.ok(output.error);
+      return openAIReply([openAIText("No live finding was established.")]);
+    },
+  });
+  const result = await f.manager.send("Research QUIC");
+  assert.equal(result.error, null);
+  assert.equal(result.trace[0].status, "failed");
+  assert.deepEqual(result.messages.at(-1).sources, []);
+});
+
+test("switching from OpenRouter to OpenAI clears previous provider context and reviews", async () => {
+  const f = fixture({
+    fetch: (_, url) =>
+      url.endsWith("/responses")
+        ? openAIReply([openAIText("Fresh OpenAI session")])
+        : reply({ content: "Previous provider context" }),
+  });
+  await f.manager.send("PRIVATE_OLD_PROVIDER_CONTEXT");
+  await prepareBlock(f);
+  const id = f.manager.status().proposals[0].id;
+  f.credentials.provider = "openai";
+  f.credentials.baseUrl = "https://api.openai.com/v1";
+  await assert.rejects(
+    () => f.manager.approve(id, false),
+    /credentials changed/,
+  );
+  const result = await f.manager.send("New provider message");
+  assert.equal(result.error, null);
+  assert.equal(f.requests.at(-1).url, "https://api.openai.com/v1/responses");
+  assert.ok(
+    !JSON.stringify(f.requests.at(-1).body).includes(
+      "PRIVATE_OLD_PROVIDER_CONTEXT",
+    ),
+  );
+  assert.equal(result.proposals.length, 0);
+  assert.equal(f.native.length, 0);
+});
+
+test("OpenAI cancellation ignores late Responses tool calls", async () => {
+  let resolve;
+  const f = fixture({
+    provider: "openai",
+    fetch: () =>
+      new Promise((r) => {
+        resolve = r;
+      }),
+  });
+  const pending = f.manager.send("Inspect current apps");
+  await new Promise(setImmediate);
+  f.manager.cancel();
+  resolve(openAIReply([openAICall("list_applications")]));
+  const result = await pending;
+  assert.equal(result.busy, false);
+  assert.equal(result.trace.length, 0);
+  assert.equal(f.native.length, 0);
 });

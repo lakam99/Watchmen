@@ -1,6 +1,14 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.2/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.3/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.3 validation
+
+- Direct OpenAI AI-console chat uses the official Responses endpoint, existing provider-bound encrypted credential and selected model. It maps local functions/results to Responses items, preserves encrypted reasoning and call IDs in memory, sets `store: false`, and never uses stored response/conversation IDs. The same approval, scope, privacy, cancellation and context-reset controls apply to both providers. OpenAI research is an isolated opt-in request with only a public query and one web-search tool; a completed search and valid HTTPS citations are required.
+- All 85 unit tests pass, including six new OpenAI tests covering multi-step app discovery, reviewed block/unblock, exact call-ID/reasoning replay, hidden paths/IPs/credentials, separate research, malformed/refused/incomplete output, unsupported built-in tools, provider changes, stale approvals and late responses after cancellation. The missing-completed-search regression first failed, then passed after the guard was added.
+- The packaged assistant workflow passes separately for OpenAI and OpenRouter, exercising encrypted UI token setup, tool calls, reviewed actions, cited web/IP research, background monitoring, cancellation, privacy revocation, narrow/light layouts and restart. The packaged feature check also passes. Provider replies and native firewall transport are simulated; no paid request, user credential or real network policy change was used. OpenAI dark/light layouts were visually inspected.
+
+Evidence: `test-results/assistant-smoke-openai-packaged.json`, `assistant-smoke-packaged.json`, `features-smoke-packaged.json`, and `ai-console-review-dark-openai.png` / `ai-console-light-narrow-openai.png`.
 
 ## Version 0.10.2 validation
 

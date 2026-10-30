@@ -764,7 +764,7 @@ function App() {
                   {page === "Network rules"
                     ? "Block apps, endpoints or regions, and decide which executable can reach the network."
                     : page === "AI console"
-                      ? "Live telemetry, public research, and reviewed network tasks through OpenRouter."
+                      ? "Live telemetry, public research, and reviewed network tasks through OpenAI or OpenRouter."
                       : page === "Changes"
                         ? "Compare new observations with saved traffic profiles, then ask OpenRouter to explain the evidence."
                         : page === "Packets"

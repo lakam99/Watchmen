@@ -18,7 +18,9 @@ const { _electron: electron } = require("playwright"),
   );
   const token = "synthetic-console-" + require("node:crypto").randomUUID(),
     env = { ...process.env, WATCHMEN_WORKSPACE_DIR: workspace },
+    provider = process.argv.includes("--openai") ? "openai" : "openrouter",
     packaged = process.argv.includes("--packaged");
+  const evidenceSuffix = provider === "openai" ? "-openai" : "";
   delete env.ELECTRON_RUN_AS_NODE;
   const launch = () =>
     electron.launch({
@@ -49,6 +51,9 @@ const { _electron: electron } = require("playwright"),
       .getByRole("button", { name: "Settings & privacy", exact: true })
       .click();
     await page
+      .getByRole("combobox", { name: "AI provider" })
+      .selectOption(provider);
+    await page
       .getByRole("combobox", { name: "AI model", exact: true })
       .selectOption("__custom");
     await page
@@ -66,7 +71,7 @@ const { _electron: electron } = require("playwright"),
     await app.evaluate(
       async (
         { app, ipcMain, BrowserWindow, safeStorage },
-        { workspace, snapshot },
+        { workspace, snapshot, provider },
       ) => {
         const require = process
             .getBuiltinModule("module")
@@ -158,9 +163,63 @@ const { _electron: electron } = require("playwright"),
         const store = new TrafficStore(workspace + "/.watchmen/traffic.sqlite");
         const response = (message) =>
           new Response(
-            JSON.stringify({
-              choices: [{ message: { role: "assistant", ...message } }],
-            }),
+            JSON.stringify(
+              provider === "openai"
+                ? {
+                    status: "completed",
+                    output: [
+                      ...(message.annotations
+                        ? [
+                            {
+                              type: "web_search_call",
+                              id: "ws_fixture",
+                              status: "completed",
+                              action: {
+                                type: "search",
+                                query:
+                                  "QUIC transport networking specification",
+                              },
+                            },
+                          ]
+                        : []),
+                      ...(message.tool_calls || []).map((c) => ({
+                        type: "function_call",
+                        id: "fc_" + randomUUID(),
+                        status: "completed",
+                        call_id: c.id,
+                        name: c.function.name,
+                        arguments: c.function.arguments,
+                      })),
+                      ...(message.content
+                        ? [
+                            {
+                              type: "message",
+                              id: "msg_" + randomUUID(),
+                              status: "completed",
+                              role: "assistant",
+                              content: [
+                                {
+                                  type: "output_text",
+                                  text: message.content,
+                                  annotations: (message.annotations || []).map(
+                                    (a) => ({
+                                      type: "url_citation",
+                                      ...a.url_citation,
+                                      start_index: 0,
+                                      end_index: 10,
+                                    }),
+                                  ),
+                                },
+                              ],
+                            },
+                          ]
+                        : []),
+                    ],
+                  }
+                : {
+                    choices: [{ message: { role: "assistant", ...message } }],
+                  },
+            ),
           );
         const tool = (name, args = {}) =>
           response({
@@ -190,9 +249,37 @@ const { _electron: electron } = require("playwright"),
                   connection: { org: "Fixture network" },
                 }),
               );
-            const body = JSON.parse(init.body);
-            global.__assistantRequests.push(body);
-            if (body.tools?.some((t) => t.type === "openrouter:web_search"))
+            const request = JSON.parse(init.body);
+            {
+              const expected =
+                provider === "openai"
+                  ? "https://api.openai.com/v1/responses"
+                  : "https://openrouter.ai/api/v1/chat/completions";
+              if (url !== expected)
+                throw new Error("Unexpected provider endpoint");
+              if (provider === "openai" && request.store !== false)
+                throw new Error("Responses must not be stored");
+            }
+            global.__assistantRequests.push(request);
+            const body =
+              provider === "openai"
+                ? {
+                    ...request,
+                    messages: request.input.flatMap((i) =>
+                      i.type === "function_call_output"
+                        ? [{ role: "tool", content: i.output }]
+                        : i.role === "user"
+                          ? [{ role: "user", content: i.content }]
+                          : [],
+                    ),
+                  }
+                : request;
+            if (
+              body.tools?.some(
+                (t) =>
+                  t.type === "openrouter:web_search" || t.type === "web_search",
+              )
+            )
               return response({
                 content:
                   "The source describes transport behavior; it does not establish a threat verdict.",
@@ -293,7 +380,7 @@ const { _electron: electron } = require("playwright"),
         send("snapshot", current);
         send("assistant-state", manager.status());
       },
-      { workspace, snapshot },
+      { workspace, snapshot, provider },
     );
     const nav = page.getByRole("navigation");
     await nav.getByRole("button", { name: "AI console", exact: true }).click();
@@ -328,7 +415,7 @@ const { _electron: electron } = require("playwright"),
       0,
     );
     await page.screenshot({
-      path: "test-results/ai-console-review-dark.png",
+      path: "test-results/ai-console-review-dark" + evidenceSuffix + ".png",
       fullPage: true,
     });
     await review
@@ -404,7 +491,7 @@ const { _electron: electron } = require("playwright"),
       false,
     );
     await page.screenshot({
-      path: "test-results/ai-console-research-dark.png",
+      path: "test-results/ai-console-research-dark" + evidenceSuffix + ".png",
       fullPage: true,
     });
     const requests = await app.evaluate(() => global.__assistantRequests);
@@ -444,7 +531,7 @@ const { _electron: electron } = require("playwright"),
       () => document.documentElement.dataset.theme === "light",
     );
     await page.screenshot({
-      path: "test-results/ai-console-light-narrow.png",
+      path: "test-results/ai-console-light-narrow" + evidenceSuffix + ".png",
       fullPage: true,
     });
     await app.close();
@@ -473,8 +560,7 @@ const { _electron: electron } = require("playwright"),
     const result = {
       passed: true,
       packaged,
-      provider:
-        "Simulated OpenRouter tool calls; real production Assistant and Firewall managers with simulated native transport",
+      provider: `Simulated ${provider} tool calls; real production Assistant and Firewall managers with simulated native transport`,
       checks: [
         "token configured through encrypted settings UI",
         "multi-step app discovery and block proposal",
@@ -491,7 +577,10 @@ const { _electron: electron } = require("playwright"),
       ],
     };
     await fs.writeFile(
-      "test-results/assistant-smoke" + (packaged ? "-packaged" : "") + ".json",
+      "test-results/assistant-smoke" +
+        evidenceSuffix +
+        (packaged ? "-packaged" : "") +
+        ".json",
       JSON.stringify(result, null, 2),
     );
     console.log(JSON.stringify(result, null, 2));

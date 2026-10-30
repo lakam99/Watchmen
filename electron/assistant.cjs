@@ -1,4 +1,9 @@
 const { randomUUID, createHash } = require("node:crypto");
+const {
+  responsesBody,
+  responsesMessage,
+  OpenAIProtocolError,
+} = require("./assistant-openai.cjs");
 const credentialKey = (config) =>
   createHash("sha256")
     .update(
@@ -162,31 +167,53 @@ class Assistant {
     this.add("event", "Lookup permissions updated. A new session has started.");
     return this.status();
   }
-  async request(config, body, signal) {
-    const response = await this.fetch(config.baseUrl + "/chat/completions", {
-      method: "POST",
-      cache: "no-store",
-      redirect: "error",
-      headers: {
-        Authorization: "Bearer " + config.token,
-        "Content-Type": "application/json",
+  async request(config, body, signal, research = false) {
+    const openai = config.provider === "openai";
+    const provider = openai ? "OpenAI" : "OpenRouter";
+    const endpoint = openai
+      ? "https://api.openai.com/v1"
+      : "https://openrouter.ai/api/v1";
+    if (
+      !["openai", "openrouter"].includes(config.provider) ||
+      config.baseUrl !== endpoint
+    )
+      throw new UserError(
+        "Choose OpenAI or OpenRouter with its official endpoint in AI settings.",
+      );
+    const response = await this.fetch(
+      endpoint + (openai ? "/responses" : "/chat/completions"),
+      {
+        method: "POST",
+        cache: "no-store",
+        redirect: "error",
+        headers: {
+          Authorization: "Bearer " + config.token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(openai ? responsesBody(body, research) : body),
+        signal,
       },
-      body: JSON.stringify(body),
-      signal,
-    });
+    );
     if (!response.ok) {
       const errors = {
         401: "The token was rejected. Check AI settings.",
         403: "The selected model is not available to this token.",
-        404: "Choose an OpenRouter model with function/tool support in Settings.",
-        429: "OpenRouter quota or rate limit reached. Try later.",
+        400: `${provider} rejected the request. Check that the selected model supports tools and the requested lookup.`,
+        404: `Choose an available ${provider} model with function/tool support in Settings.`,
+        429: `${provider} quota or rate limit reached. Try later.`,
       };
       throw new UserError(
         errors[response.status] ||
-          "OpenRouter could not complete this request. Try again later.",
+          `${provider} could not complete this request. Try again later.`,
       );
     }
-    return readJSON(response);
+    const data = await readJSON(response);
+    try {
+      return openai ? responsesMessage(data, research) : data;
+    } catch (e) {
+      if (e instanceof OpenAIProtocolError) throw new UserError(e.message);
+      throw e;
+    }
   }
   async lookup(ip, signal) {
     const response = await this.fetch(
@@ -247,6 +274,7 @@ class Assistant {
         ],
       },
       signal,
+      true,
     );
     const message = data.choices?.[0]?.message,
       sources = citations(message);
@@ -285,7 +313,7 @@ class Assistant {
     }
     this.tools.discardPending();
     this.busy = true;
-    this.phase = "Connecting to OpenRouter";
+    this.phase = "Connecting to AI provider";
     this.error = null;
     const generation = ++this.generation,
       controller = new AbortController();
@@ -316,11 +344,14 @@ class Assistant {
       }
       this.contextCredentialKey = key;
       if (
-        config.provider !== "openrouter" ||
-        config.baseUrl !== "https://openrouter.ai/api/v1"
+        !["openai", "openrouter"].includes(config.provider) ||
+        config.baseUrl !==
+          (config.provider === "openai"
+            ? "https://api.openai.com/v1"
+            : "https://openrouter.ai/api/v1")
       )
         throw new UserError(
-          "The AI console uses OpenRouter. Choose OpenRouter in AI settings.",
+          "Choose OpenAI or OpenRouter with its official endpoint in AI settings.",
         );
       if (/:online\b/i.test(config.model))
         throw new UserError(
@@ -389,6 +420,10 @@ class Assistant {
             ? this.redact(raw.content).slice(0, 16000)
             : null,
         };
+        if (config.provider === "openai" && raw.response_items)
+          message.response_items = JSON.parse(
+            this.redact(JSON.stringify(raw.response_items)),
+          );
         if (raw.reasoning_details) {
           const value = JSON.stringify(raw.reasoning_details);
           if (value.length > 40000)
