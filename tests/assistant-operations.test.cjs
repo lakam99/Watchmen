@@ -421,6 +421,29 @@ test("broad rule verification cannot confuse an existing country policy with the
     "needs_verification",
   );
 });
+test("ordinary app block verification accepts native default fields unrelated to country-only policy", async () => {
+  const f = fixture(),
+    apps = await f.execute("list_applications");
+  f.firewall.apply = async () => ({
+    isolationVerified: true,
+    rules: [
+      {
+        kind: "app",
+        appPath: f.flow.processPath,
+        countries: [],
+        allowLocalNetwork: true,
+        allowUnknown: false,
+        enabled: true,
+        partial: false,
+      },
+    ],
+  });
+  const p = await f.execute("propose_block", {
+    scope: "app",
+    targetRef: apps.applications[0].appRef,
+  });
+  assert.equal((await f.tools.approve(p.proposalId)).status, "completed");
+});
 test("change status actions use discovered group IDs, require approval, and freeze bulk group selection", async () => {
   const f = fixture(),
     c = await f.execute("connection_changes");

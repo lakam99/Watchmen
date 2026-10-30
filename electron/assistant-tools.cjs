@@ -560,6 +560,10 @@ class AssistantTools {
           enabled: r.enabled,
           partial: r.partial,
           countries: (r.countries || []).slice(0, 12),
+          allowLocalNetwork:
+            r.kind === "onlyRegion" ? r.allowLocalNetwork : undefined,
+          allowUnknown: r.kind === "onlyRegion" ? r.allowUnknown : undefined,
+          sourceMonth: r.sourceMonth,
           protocol: r.protocol,
           port: r.port,
           ...this.publicAddress(r.address, options),
@@ -699,8 +703,9 @@ class AssistantTools {
               (r.port || 0) === (p.target.port || 0) &&
               JSON.stringify([...(r.countries || [])].sort()) ===
                 JSON.stringify([...(p.target.countries || [])].sort()) &&
-              r.allowLocalNetwork === p.target.allowLocalNetwork &&
-              r.allowUnknown === p.target.allowUnknown,
+              (r.kind !== "onlyRegion" ||
+                (r.allowLocalNetwork === p.target.allowLocalNetwork &&
+                  r.allowUnknown === p.target.allowUnknown)),
       );
       const confirmed =
         result.isolationVerified === true &&
