@@ -1,4 +1,5 @@
 const { randomUUID, createHash } = require("node:crypto");
+const { summaryInstruction, localSummary } = require("./assistant-summary.cjs");
 const {
   responsesBody,
   responsesMessage,
@@ -319,11 +320,18 @@ class Assistant {
       controller = new AbortController();
     this.controller = controller;
     this.notify();
-    const timer = setTimeout(() => controller.abort(), 90000),
+    let deadlineExpired = false;
+    const timer = setTimeout(() => {
+        deadlineExpired = true;
+        controller.abort();
+      }, 90000),
       options = this.options(),
       optionKey = JSON.stringify(options);
-    const current = () => {
-      if (generation !== this.generation || controller.signal.aborted)
+    const current = (allowDeadline = false) => {
+      if (
+        generation !== this.generation ||
+        (controller.signal.aborted && !(allowDeadline && deadlineExpired))
+      )
         throw new UserError("Response stopped or timed out.");
       if (optionKey !== JSON.stringify(this.options()))
         throw new UserError("Lookup permissions changed. Start a new session.");
@@ -367,16 +375,15 @@ class Assistant {
         ips = 0,
         finished = false;
       const ids = new Set(),
-        sources = [];
-      for (let step = 0; step < 6; step++) {
-        current();
-        this.phase = step ? "Reading tool results" : "Thinking";
-        this.notify();
+        sources = [],
+        collected = [];
+      const modelMessages = (summary = false) => {
         const messages = [
           {
             role: "system",
             content:
               instructions +
+              (summary ? "\n" + summaryInstruction : "") +
               "\nCurrent time: " +
               new Date(this.clock()).toISOString() +
               "\nPermissions: " +
@@ -391,13 +398,29 @@ class Assistant {
           throw new UserError(
             "This conversation reached its context limit. Start a new session.",
           );
+        return messages;
+      };
+      const finish = (message, extra = {}) => {
+        turn.push(message);
+        this.turns.push(turn);
+        this.turns = this.turns.slice(-6);
+        this.add("assistant", message.content, {
+          sources: sources.slice(0, 8),
+          ...extra,
+        });
+        finished = true;
+      };
+      for (let step = 0; step < 6; step++) {
+        current();
+        this.phase = step ? "Reading tool results" : "Thinking";
+        this.notify();
         const data = await this.request(
           config,
           {
             model: config.model,
             plugins: [{ id: "web", enabled: false }],
             provider: { require_parameters: true },
-            messages,
+            messages: modelMessages(),
             tools: definitions(options),
             tool_choice: "auto",
             parallel_tool_calls: false,
@@ -435,13 +458,7 @@ class Assistant {
             throw new UserError(
               "The model returned no answer. Choose a tool-capable model.",
             );
-          turn.push(message);
-          this.turns.push(turn);
-          this.turns = this.turns.slice(-6);
-          this.add("assistant", message.content, {
-            sources: sources.slice(0, 8),
-          });
-          finished = true;
+          finish(message);
           break;
         }
         message.tool_calls = calls.map((c) => {
@@ -471,10 +488,6 @@ class Assistant {
         turn.push(message);
         for (const call of message.tool_calls) {
           current();
-          if (++count > 8)
-            throw new UserError(
-              "The response reached its eight-tool limit. Ask a narrower question.",
-            );
           const name = call.function.name,
             entry = {
               id: randomUUID(),
@@ -485,44 +498,53 @@ class Assistant {
               result: null,
             };
           this.trace.push(entry);
+          collected.push(entry);
           this.trace = this.trace.slice(-50);
           this.phase = "Tool / " + name;
           this.notify();
           let result;
-          try {
-            const args = JSON.parse(call.function.arguments);
-            entry.arguments = args;
-            if (
-              (name === "search_web" && ++web > 2) ||
-              (name === "lookup_destination" && ++ips > 4)
-            )
-              throw new UserError(
-                "The external lookup budget for this message was reached.",
-              );
-            result = await this.tools.execute(
-              name,
-              args,
-              options,
-              controller.signal,
-            );
-            current();
-            result = JSON.parse(this.redact(JSON.stringify(result)));
-            entry.status = "completed";
-            if (name === "search_web")
-              for (const s of result.sources || [])
-                if (!sources.some((v) => v.url === s.url)) sources.push(s);
-          } catch (e) {
-            current();
+          if (count >= 8) {
+            entry.status = "skipped";
             result = {
-              error:
-                e instanceof SyntaxError
-                  ? "Tool arguments were not valid JSON."
-                  : e instanceof ToolError || e instanceof UserError
-                    ? this.redact(clean(e.message, 300))
-                    : "The local tool could not complete. Inspect its Watchmen view for details.",
+              skipped: true,
+              note: "The per-message tool budget was reached. This call was not executed.",
             };
-            entry.status = "failed";
-          }
+          } else
+            try {
+              count++;
+              const args = JSON.parse(call.function.arguments);
+              entry.arguments = args;
+              if (
+                (name === "search_web" && ++web > 2) ||
+                (name === "lookup_destination" && ++ips > 4)
+              )
+                throw new UserError(
+                  "The external lookup budget for this message was reached.",
+                );
+              result = await this.tools.execute(
+                name,
+                args,
+                options,
+                controller.signal,
+              );
+              current();
+              result = JSON.parse(this.redact(JSON.stringify(result)));
+              entry.status = "completed";
+              if (name === "search_web")
+                for (const s of result.sources || [])
+                  if (!sources.some((v) => v.url === s.url)) sources.push(s);
+            } catch (e) {
+              current();
+              result = {
+                error:
+                  e instanceof SyntaxError
+                    ? "Tool arguments were not valid JSON."
+                    : e instanceof ToolError || e instanceof UserError
+                      ? this.redact(clean(e.message, 300))
+                      : "The local tool could not complete. Inspect its Watchmen view for details.",
+              };
+              entry.status = "failed";
+            }
           const content = JSON.stringify(result);
           entry.result =
             content.length <= 16000
@@ -538,11 +560,71 @@ class Assistant {
           });
           this.notify();
         }
+        if (count >= 8) break;
       }
-      if (!finished)
-        throw new UserError(
-          "The response reached its six-step limit. Ask a narrower question.",
+      if (!finished) {
+        current();
+        this.phase = "Summarizing collected results";
+        this.add(
+          "event",
+          "Tool lookups stopped at this message's limit. Summarizing the collected results.",
         );
+        let answer = null;
+        try {
+          const data = await this.request(
+            config,
+            {
+              model: config.model,
+              plugins: [{ id: "web", enabled: false }],
+              provider: { require_parameters: true },
+              messages: modelMessages(true),
+              tools: [],
+              tool_choice: "none",
+              parallel_tool_calls: false,
+              max_tokens: 1800,
+            },
+            controller.signal,
+          );
+          current();
+          const raw = data.choices?.[0]?.message;
+          if (
+            !raw ||
+            typeof raw.content !== "string" ||
+            !raw.content.trim() ||
+            (raw.tool_calls != null &&
+              (!Array.isArray(raw.tool_calls) || raw.tool_calls.length))
+          )
+            throw new UserError("A tool-free summary was unavailable.");
+          answer = {
+            role: "assistant",
+            content: this.redact(raw.content).slice(0, 16000),
+          };
+          if (config.provider === "openai" && raw.response_items)
+            answer.response_items = JSON.parse(
+              this.redact(JSON.stringify(raw.response_items)),
+            );
+          if (raw.reasoning_details) {
+            const value = JSON.stringify(raw.reasoning_details);
+            if (value.length > 40000)
+              throw new UserError(
+                "Model reasoning exceeded the console limit.",
+              );
+            answer.reasoning_details = JSON.parse(this.redact(value));
+          }
+        } catch {
+          current(true);
+          answer = null;
+        }
+        if (answer) finish(answer, { limited: true, summarySource: "model" });
+        else
+          finish(
+            {
+              role: "assistant",
+              content: this.redact(localSummary(collected)),
+            },
+            { limited: true, summarySource: "local" },
+          );
+      }
     } catch (e) {
       if (generation === this.generation) {
         this.tools.discardPending(

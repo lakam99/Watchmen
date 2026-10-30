@@ -35,7 +35,7 @@ function responsesBody(body, research = false) {
           ...t.function,
           strict: false,
         })),
-    tool_choice: research ? "required" : "auto",
+    tool_choice: research ? "required" : body.tool_choice || "auto",
     ...(research ? { max_tool_calls: 1 } : {}),
   };
 }

@@ -628,9 +628,14 @@ test("cancellation ignores late model tool calls and cannot clear a newer active
 test("tool loops and oversized provider responses stop at bounded limits without leaking raw errors", async () => {
   const f = fixture({ fetch: () => reply(call("network_status")) });
   const result = await f.manager.send("Keep checking");
-  assert.match(result.error, /six-step/);
+  assert.equal(result.error, null);
+  assert.equal(result.messages.at(-1).summarySource, "local");
+  assert.match(result.messages.at(-1).text, /active connections/);
   assert.equal(result.busy, false);
-  assert.equal(f.requests.length, 6);
+  assert.equal(f.requests.length, 7);
+  assert.equal(result.trace.length, 6);
+  assert.equal(f.requests.at(-1).body.tool_choice, "none");
+  assert.deepEqual(f.requests.at(-1).body.tools, []);
   await assert.rejects(
     () => readJSON(new Response("x".repeat(256001))),
     /size limit/,
@@ -946,5 +951,374 @@ test("OpenAI cancellation ignores late Responses tool calls", async () => {
   const result = await pending;
   assert.equal(result.busy, false);
   assert.equal(result.trace.length, 0);
+  assert.equal(f.native.length, 0);
+});
+
+test("both providers finish six tool rounds with one tool-free summary and retain usable conversation history", async () => {
+  for (const provider of ["openai", "openrouter"]) {
+    let step = 0;
+    const f = fixture({
+      provider,
+      fetch: (body) => {
+        const output =
+          provider === "openai"
+            ? body.input
+                .filter((i) => i.type === "function_call_output")
+                .map((i) => JSON.parse(i.output))
+            : body.messages
+                .filter((m) => m.role === "tool")
+                .map((m) => JSON.parse(m.content));
+        if (body.tool_choice === "none") {
+          assert.deepEqual(body.tools, []);
+          assert.equal(output.length, 6);
+          assert.ok(output.every((r) => typeof r.connections === "number"));
+          assert.match(JSON.stringify(body), /lookup budget is exhausted/);
+          assert.equal(body.plugins === undefined, provider === "openai");
+          return provider === "openai"
+            ? openAIReply([
+                openAIText(
+                  "Collected six snapshots. Further lookups were left incomplete.",
+                ),
+              ])
+            : reply({
+                content:
+                  "Collected six snapshots. Further lookups were left incomplete.",
+              });
+        }
+        if (step++ >= 6)
+          return provider === "openai"
+            ? openAIReply([
+                openAIText("Follow-up answered from earlier results."),
+              ])
+            : reply({ content: "Follow-up answered from earlier results." });
+        return provider === "openai"
+          ? openAIReply([openAICall("network_status")])
+          : reply(call("network_status"));
+      },
+    });
+    const result = await f.manager.send("Investigate my traffic");
+    assert.equal(result.error, null);
+    assert.equal(result.busy, false);
+    assert.equal(result.trace.length, 6);
+    assert.equal(result.messages.at(-1).summarySource, "model");
+    assert.equal(result.messages.at(-1).limited, true);
+    assert.match(result.messages.at(-1).text, /Collected six snapshots/);
+    assert.equal(f.requests.length, 7);
+    assert.equal(f.native.length, 0);
+    const next = await f.manager.send("What was found?");
+    assert.equal(next.error, null);
+    assert.match(
+      JSON.stringify(f.requests.at(-1).body),
+      /Collected six snapshots/,
+    );
+    for (const hidden of [token, "C:\\Apps", "10.0.0.5", "8.8.8.8"])
+      assert.ok(
+        !JSON.stringify(f.requests.map((r) => r.body)).includes(hidden),
+      );
+  }
+});
+
+test("eight-tool budget stops execution mid-batch, pairs every call output, and switches to a summary", async () => {
+  for (const provider of ["openai", "openrouter"]) {
+    let step = 0,
+      executions = 0,
+      appRef;
+    const f = fixture({
+      provider,
+      fetch: (body) => {
+        if (body.tool_choice === "none") {
+          const calls =
+            provider === "openai"
+              ? body.input.filter((i) => i.type === "function_call")
+              : body.messages.flatMap((m) => m.tool_calls || []);
+          const outputs =
+            provider === "openai"
+              ? body.input.filter((i) => i.type === "function_call_output")
+              : body.messages.filter((m) => m.role === "tool");
+          assert.equal(calls.length, 10);
+          assert.equal(outputs.length, 10);
+          for (const c of calls)
+            assert.ok(
+              outputs.some(
+                (o) => (o.call_id || o.tool_call_id) === (c.call_id || c.id),
+              ),
+            );
+          const skipped = outputs
+            .map((o) => JSON.parse(o.output || o.content))
+            .filter((o) => o.skipped);
+          assert.equal(skipped.length, 2);
+          return provider === "openai"
+            ? openAIReply([
+                openAIText(
+                  "Eight lookups completed; two further calls were not executed.",
+                ),
+              ])
+            : reply({
+                content:
+                  "Eight lookups completed; two further calls were not executed.",
+              });
+        }
+        const names =
+          step++ < 2
+            ? ["network_status", "network_status", "network_status"]
+            : [
+                "network_status",
+                "network_status",
+                "propose_block",
+                "propose_block",
+              ];
+        const args = (name) =>
+          name === "propose_block" ? { scope: "app", targetRef: appRef } : {};
+        return provider === "openai"
+          ? openAIReply(names.map((name) => openAICall(name, args(name))))
+          : reply({
+              content: null,
+              tool_calls: names.map(
+                (name) => call(name, args(name)).tool_calls[0],
+              ),
+            });
+      },
+    });
+    appRef = f.manager.tools.appRef(f.snapshot.flows[0]);
+    const execute = f.manager.tools.execute.bind(f.manager.tools);
+    f.manager.tools.execute = (...args) => {
+      executions++;
+      return execute(...args);
+    };
+    const result = await f.manager.send("Run several lookups");
+    assert.equal(result.error, null);
+    assert.equal(executions, 8);
+    assert.equal(f.requests.length, 4);
+    assert.equal(result.trace.filter((t) => t.status === "skipped").length, 2);
+    assert.equal(result.proposals.length, 0);
+    assert.equal(f.native.length, 0);
+    assert.equal(result.messages.at(-1).summarySource, "model");
+  }
+});
+
+test("failed, empty, incomplete or tool-requesting final summaries fall back to collected facts without further tools", async () => {
+  for (const provider of ["openai", "openrouter"]) {
+    for (const mode of [
+      "empty",
+      "tool",
+      "http",
+      "network",
+      "malformed",
+      "incomplete",
+    ]) {
+      const f = fixture({
+        provider,
+        fetch: (body) => {
+          if (body.tool_choice !== "none")
+            return provider === "openai"
+              ? openAIReply([openAICall("network_status")])
+              : reply(call("network_status"));
+          if (mode === "network") throw new Error("secret " + token);
+          if (mode === "http") return new Response(token, { status: 429 });
+          if (mode === "malformed") return new Response("invalid " + token);
+          if (mode === "incomplete" && provider === "openai")
+            return openAIReply([openAIText("partial " + token)], "incomplete");
+          if (mode === "tool")
+            return provider === "openai"
+              ? openAIReply([
+                  openAICall("propose_block", {
+                    scope: "app",
+                    targetRef: "forged",
+                  }),
+                ])
+              : reply(
+                  call("propose_block", { scope: "app", targetRef: "forged" }),
+                );
+          return provider === "openai"
+            ? openAIReply([openAIText("")])
+            : reply({ content: "" });
+        },
+      });
+      const result = await f.manager.send("Inspect traffic");
+      assert.equal(result.error, null);
+      assert.equal(result.trace.length, 6);
+      assert.equal(f.requests.length, 7);
+      assert.equal(result.messages.at(-1).summarySource, "local");
+      assert.match(result.messages.at(-1).text, /2 active connections/);
+      assert.match(
+        result.messages.at(-1).text,
+        /per-app bytes are unavailable/,
+      );
+      assert.equal(result.proposals.length, 0);
+      assert.equal(f.native.length, 0);
+      assert.ok(!JSON.stringify(result).includes(token));
+    }
+  }
+});
+
+test("limit summaries preserve citations and pending reviews without claiming or executing a block", async () => {
+  for (const fallback of [false, true]) {
+    let step = 0;
+    const f = fixture({
+      options: { webSearch: true },
+      fetch: (body) => {
+        if (body.tools.some((t) => t.type === "openrouter:web_search"))
+          return reply({
+            content: "QUIC reference material.",
+            annotations: [
+              {
+                type: "url_citation",
+                url_citation: {
+                  url: "https://www.rfc-editor.org/rfc/rfc9000",
+                  title: "QUIC",
+                },
+              },
+            ],
+          });
+        if (body.tool_choice === "none")
+          return fallback
+            ? reply(call("network_status"))
+            : reply({
+                content:
+                  "A block review is pending approval. The cited source describes QUIC.",
+              });
+        if (step++ === 0) return reply(call("list_applications"));
+        if (step === 2)
+          return reply(
+            call("propose_block", {
+              scope: "app",
+              targetRef: lastTool(body).applications[0].appRef,
+            }),
+          );
+        if (step === 3)
+          return reply(
+            call("search_web", { query: "QUIC transport specification" }),
+          );
+        return reply(call("network_status"));
+      },
+    });
+    let result = await f.manager.send("Investigate and prepare a block");
+    assert.equal(result.error, null);
+    assert.equal(result.proposals.length, 1);
+    assert.equal(result.proposals[0].status, "pending");
+    assert.equal(result.messages.at(-1).sources[0].title, "QUIC");
+    assert.equal(f.native.length, 0);
+    if (fallback)
+      assert.match(result.messages.at(-1).text, /requires local approval/);
+    result = await f.manager.approve(result.proposals[0].id, false);
+    assert.equal(result.proposals[0].status, "completed");
+    assert.equal(f.native.filter((r) => r.action === "add").length, 1);
+  }
+});
+
+test("cancellation and permission revocation during final summary cannot append a late answer or fallback", async () => {
+  for (const change of ["cancel", "permissions"]) {
+    let resolveSummary, started;
+    const summaryStarted = new Promise((resolve) => {
+      started = resolve;
+    });
+    const f = fixture({
+      fetch: (body) => {
+        if (body.tool_choice === "none") {
+          started();
+          return new Promise((resolve) => {
+            resolveSummary = resolve;
+          });
+        }
+        return reply(call("network_status"));
+      },
+    });
+    const pending = f.manager.send("Inspect traffic");
+    await summaryStarted;
+    if (change === "cancel") f.manager.cancel();
+    else await f.settings.patch("assistant", { shareIPs: true });
+    resolveSummary(reply({ content: "Late answer that must not appear" }));
+    const result = await pending;
+    assert.equal(
+      result.messages.some((m) => m.role === "assistant"),
+      false,
+    );
+    assert.equal(result.busy, false);
+    assert.equal(f.native.length, 0);
+  }
+});
+
+test("local recaps retain sampled apps and distinct connection queries while omitting unavailable oversized results", () => {
+  const { localSummary } = require("../electron/assistant-summary.cjs");
+  const text = localSummary([
+    {
+      tool: "list_applications",
+      status: "completed",
+      result: {
+        truncated: true,
+        applications: [{ app: "Sample Browser", connections: 10 }],
+      },
+    },
+    {
+      tool: "inspect_connections",
+      status: "completed",
+      arguments: { appRef: "first" },
+      result: {
+        total: 1,
+        tracingEnabled: false,
+        connections: [{ app: "Browser A" }],
+      },
+    },
+    {
+      tool: "inspect_connections",
+      status: "completed",
+      arguments: { appRef: "second" },
+      result: {
+        total: 2,
+        tracingEnabled: true,
+        connections: [{ app: "Browser B" }],
+      },
+    },
+    {
+      tool: "network_status",
+      status: "completed",
+      result: { truncated: true, note: "oversized" },
+    },
+    {
+      tool: "lookup_destination",
+      status: "failed",
+      result: { error: "private error " + token },
+    },
+  ]);
+  for (const expected of [
+    "Sample Browser",
+    "more applications were omitted",
+    "Browser A",
+    "Browser B",
+    "1 tool attempts failed",
+  ])
+    assert.ok(text.includes(expected));
+  assert.ok(!text.includes("unknown active connections"));
+  assert.ok(!text.includes(token));
+});
+
+test("deadline expiry during the final summary returns collected facts while user cancellation remains distinct", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let started;
+  const summaryStarted = new Promise((resolve) => {
+    started = resolve;
+  });
+  const f = fixture({
+    fetch: (body, _, init) => {
+      if (body.tool_choice !== "none") return reply(call("network_status"));
+      started();
+      return new Promise((_, reject) =>
+        init.signal.addEventListener(
+          "abort",
+          () => reject(new Error("deadline")),
+          { once: true },
+        ),
+      );
+    },
+  });
+  const pending = f.manager.send("Inspect traffic");
+  await summaryStarted;
+  t.mock.timers.tick(90000);
+  const result = await pending;
+  assert.equal(result.error, null);
+  assert.equal(result.busy, false);
+  assert.equal(result.messages.at(-1).summarySource, "local");
+  assert.match(result.messages.at(-1).text, /active connections/);
+  assert.equal(f.requests.length, 7);
   assert.equal(f.native.length, 0);
 });

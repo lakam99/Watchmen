@@ -1,6 +1,14 @@
 # Watchmen verification — October 29, 2026
 
-The Windows x64 build is `release/0.10.4/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.5/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.5 validation
+
+- Six-round and eight-tool limits now stop further execution and request one final tool-free answer, including OpenAI Responses `tool_choice: none`. Every call in an overflowing batch receives either its real result or an explicit unexecuted result, preserving valid replay. The prompt asks for a concise partial answer grounded in collected evidence, unknowns and pending approval status. Empty, failed, malformed, incomplete or tool-requesting summaries use a deterministic local recap; deadline expiry during that final pass also uses the recap. No extra tool is executed by summary mode. Cancellation and permission changes still suppress stale replies. Citations and pending review cards remain available.
+- All 97 unit tests pass. Seven new regressions cover both provider formats, exact round/tool budgets, mid-batch skipped actions, history replay after summary, provider failures/invalid summary output, retained cited evidence and approvals, distinct/sampled local facts, deadline expiry, cancellation and permission revocation. The former six-step error assertion now verifies a successful local recap even when the model keeps requesting tools.
+- Packaged assistant workflows pass for both OpenAI and OpenRouter, including the existing reviewed block/unblock and lookup paths plus forced six-round summary, local fallback when a model requests tools after tools are disabled, and cancellation during final summary while monitoring continues. The local recap UI was visually inspected. Provider replies and native operations are simulated; no paid inference, user credential or real firewall mutation was used. Final packages are built and audited by GitHub before publication.
+
+Evidence: `test-results/assistant-smoke-openai-packaged.json`, `assistant-smoke-packaged.json`, and `ai-console-limit-summary-openai.png` / `ai-console-limit-recap-openai.png` (synthetic traffic).
 
 ## Version 0.10.4 validation
 

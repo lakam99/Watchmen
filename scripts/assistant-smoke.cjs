@@ -301,6 +301,21 @@ const { _electron: electron } = require("playwright"),
                 .slice(lastUser + 1)
                 .filter((m) => m.role === "tool"),
               last = results.length ? JSON.parse(results.at(-1).content) : null;
+            if (/limit/i.test(prompt)) {
+              if (body.tool_choice !== "none") return tool("network_status");
+              if (body.tools.length !== 0)
+                throw new Error("Final summary must not expose tools");
+              if (/fallback/i.test(prompt))
+                return tool("propose_block", {
+                  scope: "app",
+                  targetRef: "must-not-execute",
+                });
+              if (!/slow/i.test(prompt))
+                return response({
+                  content:
+                    "Collected six telemetry snapshots. Further lookups stopped at this message's limit; no network change was applied.",
+                });
+            }
             if (/slow/i.test(prompt))
               return new Promise((resolve, reject) =>
                 init.signal.addEventListener(
@@ -494,14 +509,52 @@ const { _electron: electron } = require("playwright"),
       path: "test-results/ai-console-research-dark" + evidenceSuffix + ".png",
       fullPage: true,
     });
+    await send("Run a limit investigation.");
+    await page
+      .getByText(
+        "Collected six telemetry snapshots. Further lookups stopped at this message's limit; no network change was applied.",
+        { exact: true },
+      )
+      .waitFor();
+    let limited = await page.evaluate(() => window.watchmen.assistantStatus());
+    assert.equal(limited.value.error, null);
+    assert.equal(limited.value.messages.at(-1).summarySource, "model");
+    let limitRequests = await app.evaluate(() =>
+      global.__assistantRequests.slice(-7),
+    );
+    assert.equal(limitRequests.length, 7);
+    assert.ok(limitRequests.slice(0, 6).every((r) => r.tool_choice === "auto"));
+    assert.equal(limitRequests[6].tool_choice, "none");
+    assert.deepEqual(limitRequests[6].tools, []);
+    await page.screenshot({
+      path: "test-results/ai-console-limit-summary" + evidenceSuffix + ".png",
+      fullPage: true,
+    });
+    await send("Run a limit fallback investigation.");
+    await page.getByText("COLLECTED RESULTS", { exact: true }).waitFor();
+    limited = await page.evaluate(() => window.watchmen.assistantStatus());
+    assert.equal(limited.value.error, null);
+    assert.equal(limited.value.messages.at(-1).summarySource, "local");
+    assert.ok(
+      limited.value.messages.at(-1).text.includes("1 active connections"),
+    );
+    assert.equal(limited.value.proposals.length, 0);
+    await page.screenshot({
+      path: "test-results/ai-console-limit-recap" + evidenceSuffix + ".png",
+      fullPage: true,
+    });
     const requests = await app.evaluate(() => global.__assistantRequests);
     assert.ok(!JSON.stringify(requests).includes(token));
     assert.ok(!JSON.stringify(requests).includes("RelayBrowser.exe"));
     assert.ok(!JSON.stringify(requests).includes("192.0.2.42"));
-    await message.fill("Begin a slow investigation.");
+    await message.fill("Run a limit slow investigation.");
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await page
       .getByRole("button", { name: "Stop response", exact: true })
+      .waitFor();
+    await page
+      .getByRole("status")
+      .filter({ hasText: "Summarizing collected results" })
       .waitFor();
     await nav.getByRole("button", { name: "Overview", exact: true }).click();
     await page
@@ -568,6 +621,9 @@ const { _electron: electron } = require("playwright"),
         "approved block and one-rule unblock",
         "public IP and cited web lookup opt-ins",
         "tool activity log",
+        "six tool rounds followed by one tool-free final summary",
+        "local recap when the model ignores tool-free mode",
+        "cancellation during final summary while monitoring continues",
         "no credentials, executable paths or local IPs in model messages",
         "background response while monitoring",
         "cancellation",

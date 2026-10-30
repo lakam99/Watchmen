@@ -28,6 +28,7 @@ type Message = {
   text: string;
   at: number;
   sources?: Source[];
+  summarySource?: "model" | "local";
 };
 type Trace = {
   id: string;
@@ -253,7 +254,9 @@ export function AIConsole({
                     {m.role === "user"
                       ? "OPERATOR"
                       : m.role === "assistant"
-                        ? "AI ASSISTANT"
+                        ? m.summarySource === "local"
+                          ? "COLLECTED RESULTS"
+                          : "AI ASSISTANT"
                         : "HOST EVENT"}
                   </span>
                   <time>
@@ -319,8 +322,8 @@ export function AIConsole({
             />
             <div className="console-composer-actions">
               <span>
-                {draft.length.toLocaleString()} / 4,000 · up to 6 AI steps per
-                message
+                {draft.length.toLocaleString()} / 4,000 · up to 6 tool rounds +
+                final summary
               </span>
               <button
                 className="button"
