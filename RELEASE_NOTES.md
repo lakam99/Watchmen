@@ -1,5 +1,8 @@
 ## Changes
 
+- Default live monitoring and Reset filters to active Internet connections, keeping LAN traffic and listening sockets accessible through Network scope. Existing All networks views switch once; subsequent explicit choices persist.
+- Generate new destination/service/country and spike notices only for public Internet traffic. Retain local traffic history and existing notices; rebuild measured spike baselines using Internet-only samples.
+
 - Cache successful app research in the local traffic database and reuse explanations/citations across repeated row overviews, restarts, instances and provider changes. Label cached findings with their collection date and provider/model; keep live row analysis fresh.
 - Add **Refresh research** to run one new lookup and replace successful findings. Failed or cancelled refreshes retain the previous cache. Validate cached sources, keep credentials and row data out of research records, and bound retention to 500 recently used apps.
 

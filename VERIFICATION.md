@@ -1,6 +1,13 @@
-# Watchmen verification — October 30, 2026
+# Watchmen verification — November 16, 2026
 
-The Windows x64 build is `release/0.10.10/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+The Windows x64 build is `release/0.10.11/Watchmen-win32-x64/Watchmen.exe`. Keep its adjacent runtime files together.
+
+## Version 0.10.11 validation
+
+- All 146 unit tests pass. Added real-SQLite coverage for fresh Internet defaults, one-time upgrade of existing All networks views, preservation of other monitor fields and explicit listener/all choices on subsequent launches. Detection coverage verifies local/listening endpoints remain in history without producing new change notices or contributing bytes to Internet spike windows; existing Internet destination/spike coverage still passes.
+- TypeScript/frontend and native builds pass. The packaged UI smoke uses an isolated temporary workspace with synthetic Internet, LAN and listener flows. It verifies default exclusion, explicit scope access, Reset filters, persistence after reload, and no renderer exceptions. The screenshot was visually checked. No saved user firewall policies, credentials or AI services were used.
+- Existing traffic history and change notices are retained. Old mixed-scope spike windows are cleared once so new spike baselines contain only Internet traffic. Adapter charts continue to measure total adapter traffic.
+- Evidence: `test-results/unit-internet-default.txt`, `test-results/internet-default-smoke.json`, `test-results/internet-default.png`.
 
 ## Version 0.10.10 validation
 

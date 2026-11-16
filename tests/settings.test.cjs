@@ -120,3 +120,28 @@ test("corrupt and future databases are preserved and settings writes fail closed
   assert.equal(read.prepare("SELECT value FROM keep").get().value, 42);
   read.close();
 });
+
+test("Internet defaults migrate All networks once and preserve explicit scope choices", async (t) => {
+  const f = await fixture(t),
+    a = f.open();
+  await a.init();
+  assert.equal(a.get("monitor").filter, "internet");
+  await a.patch("monitor", { filter: "all", search: "keep-search" });
+  a.db.exec("DELETE FROM settings_migrations WHERE name='internet_default_v1'");
+  a.close();
+  const b = f.open();
+  await b.init();
+  assert.equal(b.get("monitor").filter, "internet");
+  assert.equal(b.get("monitor").search, "keep-search");
+  await b.patch("monitor", { filter: "all" });
+  b.close();
+  const c = f.open();
+  await c.init();
+  assert.equal(c.get("monitor").filter, "all");
+  await c.patch("monitor", { filter: "listener" });
+  c.db.exec("DELETE FROM settings_migrations WHERE name='internet_default_v1'");
+  c.close();
+  const d = f.open();
+  await d.init();
+  assert.equal(d.get("monitor").filter, "listener");
+});

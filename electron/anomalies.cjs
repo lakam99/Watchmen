@@ -1,3 +1,4 @@
+const { isPublicIP } = require("./network.cjs");
 const { randomUUID } = require("node:crypto");
 const MINUTE = 60000,
   DAY = 86400000,
@@ -78,6 +79,16 @@ class Anomalies {
       this.q(
         "INSERT INTO detector_migrations VALUES('grouped_changes_v1')",
       ).run();
+    }
+    if (
+      !this.q(
+        "SELECT 1 FROM detector_migrations WHERE name='internet_rates_v1'",
+      ).get()
+    ) {
+      // Old rate windows include local traffic and cannot form an Internet baseline.
+      this.store.db.exec(
+        "DELETE FROM rate_windows; INSERT INTO detector_migrations VALUES('internet_rates_v1');",
+      );
     }
     this.q("INSERT OR IGNORE INTO detector_meta VALUES(1,?)").run(
       this.store.clock(),
@@ -184,14 +195,7 @@ class Anomalies {
     for (const app of apps.values())
       maturity.set(app.id, this.maturity(app.id));
     for (const edge of edges.values()) {
-      if (
-        edge.address === "*" ||
-        edge.port === 0 ||
-        edge.address === "::1" ||
-        edge.address.startsWith("127.") ||
-        edge.address.startsWith("::ffff:127.")
-      )
-        continue;
+      if (!isPublicIP(edge.address) || edge.port === 0) continue;
       const base = maturity.get(edge.appId);
       if (!base || base.observedMs < LEARN_MS) continue;
       const app = apps.get(edge.appId),
@@ -253,16 +257,26 @@ class Anomalies {
         );
       }
     }
+    // Build spike rates only from Internet edges; app totals also contain LAN traffic.
+    const internetTotals = new Map();
+    for (const edge of edges.values()) {
+      if (!isPublicIP(edge.address) || edge.port === 0) continue;
+      const totals = internetTotals.get(edge.appId) || { received: 0, sent: 0 };
+      totals.received += edge.received;
+      totals.sent += edge.sent;
+      internetTotals.set(edge.appId, totals);
+    }
     const minute = Math.floor(timestamp / MINUTE) * MINUTE;
     for (const app of apps.values()) {
-      if (!measured || elapsed <= 0) continue;
+      const totals = internetTotals.get(app.id);
+      if (!totals || !measured || elapsed <= 0) continue;
       this.q(
         "INSERT INTO rate_windows VALUES(?,?,?,?,?,?) ON CONFLICT(app_id,minute) DO UPDATE SET received=received+excluded.received,sent=sent+excluded.sent,measured_ms=measured_ms+excluded.measured_ms,quality_ok=MIN(quality_ok,excluded.quality_ok)",
       ).run(
         app.id,
         minute,
-        app.received,
-        app.sent,
+        totals.received,
+        totals.sent,
         elapsed,
         quality && !app.counterReset ? 1 : 0,
       );
@@ -315,6 +329,7 @@ class Anomalies {
     this.q("DELETE FROM rate_windows WHERE minute<?").run(timestamp - 7 * DAY);
   }
   location(address, timestamp) {
+    if (!isPublicIP(address)) return;
     const destination = this.q(
       "SELECT country,lookup_at FROM destinations WHERE address=?",
     ).get(address);

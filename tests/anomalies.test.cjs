@@ -210,7 +210,19 @@ test("sustained traffic spikes require measured coverage, sufficient baseline, v
     const app = { id, name: "Browser", received: 1000, sent: 0 };
     const input = {
       apps: new Map([[id, app]]),
-      edges: new Map(),
+      edges: new Map([
+        [
+          "public",
+          {
+            appId: id,
+            address: "8.8.8.8",
+            port: 443,
+            protocol: "TCP",
+            received: 1000,
+            sent: 0,
+          },
+        ],
+      ]),
       timestamp: f.now,
       measured: false,
       elapsed: 2000,
@@ -249,7 +261,19 @@ test("bad-quality or poorly covered windows cannot trigger a spike", () => {
         );
     f.store.anomalies.observe({
       apps: new Map([[id, { id, name: "Browser", received: 100, sent: 0 }]]),
-      edges: new Map(),
+      edges: new Map([
+        [
+          "public",
+          {
+            appId: id,
+            address: "8.8.8.8",
+            port: 443,
+            protocol: "TCP",
+            received: 1000,
+            sent: 0,
+          },
+        ],
+      ]),
       timestamp: f.now,
       measured: true,
       elapsed: 2000,
@@ -266,9 +290,7 @@ test("browser destination churn creates one review group; repeated snapshots can
     f.warm();
     for (let i = 1; i <= 80; i++) {
       f.advance(2000);
-      f.ingest([
-        { ...f.flow, id: "new-" + i, remoteAddress: "203.0.113." + i },
-      ]);
+      f.ingest([{ ...f.flow, id: "new-" + i, remoteAddress: "11.12.13." + i }]);
     }
     let feed = f.store.anomalies.list();
     assert.equal(feed.counts.open, 1);
@@ -278,7 +300,7 @@ test("browser destination churn creates one review group; repeated snapshots can
     const original = feed.alerts[0].evidence.baseline.knownDestinations;
     for (let i = 0; i < 5; i++) {
       f.advance(2000);
-      f.ingest([{ ...f.flow, id: "new-80", remoteAddress: "203.0.113.80" }]);
+      f.ingest([{ ...f.flow, id: "new-80", remoteAddress: "11.12.13.80" }]);
     }
     feed = f.store.anomalies.list();
     assert.equal(feed.alerts[0].occurrences, 80);
@@ -286,12 +308,12 @@ test("browser destination churn creates one review group; repeated snapshots can
     assert.ok(
       !JSON.stringify(
         f.store.anomalies.explainPayload(feed.alerts[0].id),
-      ).includes("203.0.113."),
+      ).includes("11.12.13."),
     );
     f.store.anomalies.dismissAll();
     assert.equal(f.store.anomalies.openCount(), 0);
     f.advance(2000);
-    f.ingest([{ ...f.flow, id: "new-80", remoteAddress: "203.0.113.80" }]);
+    f.ingest([{ ...f.flow, id: "new-80", remoteAddress: "11.12.13.80" }]);
     assert.equal(f.store.anomalies.openCount(), 0);
   } finally {
     f.cleanup();
@@ -361,12 +383,12 @@ test("old per-endpoint alerts collapse during migration without losing source re
           "new_destination",
           appId,
           "Browser",
-          "203.0.113." + i,
+          "11.12.13." + i,
           "notice",
           f.now,
           JSON.stringify({
             baseline: { knownDestinations: 1 },
-            observed: { address: "203.0.113." + i },
+            observed: { address: "11.12.13." + i },
             note: "Fixture",
           }),
         );
@@ -387,6 +409,67 @@ test("old per-endpoint alerts collapse during migration without losing source re
       "dismissed",
     );
     assert.equal(f.store.anomalies.openCount(), 0);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("local endpoints and listeners stay in history without creating Internet notices or spike bytes", () => {
+  const f = fixture();
+  try {
+    f.warm();
+    f.advance(2000);
+    const addresses = [
+      "*",
+      "0.0.0.0",
+      "::",
+      "::1",
+      "127.0.0.1",
+      "192.168.1.8",
+      "10.0.0.9",
+      "fe80::1",
+      "::ffff:192.168.1.9",
+    ];
+    const rows = addresses.map((remoteAddress, i) => ({
+      ...f.flow,
+      id: "local-" + i,
+      remoteAddress,
+      remotePort: 445,
+      firstSeen: new Date(f.now).toISOString(),
+      received: 20000000,
+    }));
+    f.ingest(rows, true);
+    f.advance(2000);
+    f.ingest(
+      rows.map((r) => ({ ...r, received: 40000000 })),
+      true,
+    );
+    assert.equal(f.store.anomalies.list().alerts.length, 0);
+    assert.equal(
+      f.store.q("SELECT COUNT(*) count FROM rate_windows").get().count,
+      0,
+    );
+    assert.ok(
+      f.store
+        .detail({ appId: appIdentity(f.flow) })
+        .endpoints.some((e) => e.address === "192.168.1.8"),
+    );
+    f.advance(2000);
+    f.ingest(
+      [
+        ...rows.map((r) => ({ ...r, received: 60000000 })),
+        { ...f.flow, id: "public-new", remoteAddress: "9.9.9.9", received: 0 },
+      ],
+      true,
+    );
+    assert.equal(
+      f.store.anomalies
+        .list()
+        .alerts.filter((a) => a.type === "new_destination").length,
+      1,
+    );
+    const rate = f.store.q("SELECT * FROM rate_windows").get();
+    assert.equal(rate.received, 0);
   } finally {
     f.cleanup();
   }

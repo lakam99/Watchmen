@@ -16,7 +16,7 @@ const defaults = {
   monitor: {
     page: "Overview",
     group: "app",
-    filter: "all",
+    filter: "internet",
     lifecycle: "active",
     direction: "both",
     sort: "connections",
@@ -192,6 +192,31 @@ class SettingsStore {
                 JSON.stringify(legacy[key] || defaults[key]),
                 Date.now(),
               );
+          this.db.exec(
+            "CREATE TABLE IF NOT EXISTS settings_migrations(name TEXT PRIMARY KEY);",
+          );
+          if (
+            !this.db
+              .prepare(
+                "SELECT 1 FROM settings_migrations WHERE name='internet_default_v1'",
+              )
+              .get()
+          ) {
+            const monitor = this.get("monitor");
+            if (monitor.filter === "all") {
+              monitor.filter = "internet";
+              this.db
+                .prepare(
+                  "UPDATE app_settings SET value_json=?,updated_at=? WHERE key='monitor'",
+                )
+                .run(JSON.stringify(monitor), Date.now());
+            }
+            this.db
+              .prepare(
+                "INSERT INTO settings_migrations VALUES('internet_default_v1')",
+              )
+              .run();
+          }
           this.db.exec("COMMIT;");
         } catch (error) {
           this.db.exec("ROLLBACK;");

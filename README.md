@@ -4,7 +4,7 @@ A local-first Windows desktop network monitor with a spaceship terminal interfac
 
 ## Run the desktop app
 
-Open `release/0.10.10/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
+Open `release/0.10.11/Watchmen-win32-x64/Watchmen.exe`. Keep the entire folder together: the executable needs its adjacent runtime files. The collector runtime is bundled; installing .NET is unnecessary for the packaged app. Releases use versioned folders so a running older version does not block a new build.
 
 Closing the window keeps Watchmen running in the Windows notification area (system tray, beside the clock). Monitoring, local traffic profiling, captures, rule tasks and AI responses continue. Click the tray icon or choose **Show Watchmen** to return to the same window. Choose **Quit Watchmen** in its right-click menu to stop the app and collector. The tray menu also offers **Hide window**.
 
@@ -202,3 +202,5 @@ Production UI uses a sandboxed renderer with context isolation and narrow IPC me
 
 
 If a local development network requires Windows certificate trust, Node 22.21 supports `NODE_OPTIONS=--use-system-ca`. An existing Electron ZIP directory can be supplied through `WATCHMEN_ELECTRON_ZIP_DIR` when packaging. TLS verification stays enabled.
+
+Live tables default to **Internet (default)** and active connections. Use **Network scope > Local network**, **Listening sockets**, or **All networks + listeners** for local inspection. Reset filters restores the Internet view. Existing All networks preferences switch once on upgrade; later explicit choices persist. New change notices cover public Internet destinations and Internet-only measured traffic spikes; LAN/listener history and existing notices remain available. The Internet-only spike baseline starts collecting anew after this upgrade. Adapter bandwidth charts still show total adapter traffic.

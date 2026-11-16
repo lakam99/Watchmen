@@ -240,7 +240,7 @@ function App() {
     [page, setPage] = useState("Overview"),
     [group, setGroup] = useState<GroupBy>("app"),
     [search, setSearch] = useState(""),
-    [filter, setFilter] = useState("all"),
+    [filter, setFilter] = useState("internet"),
     [lifecycle, setLifecycle] = useState("active"),
     [direction, setDirection] = useState("both"),
     [sort, setSort] = useState("connections"),
@@ -509,7 +509,7 @@ function App() {
   const chosen = groups.find((g) => g.id === selected);
   const inspected = chosen?.flows.find((f) => f.id === connection);
   const active = data.flows.filter(
-    (f) => f.active && scope(f.remoteAddress) !== "listener",
+    (f) => f.active && scope(f.remoteAddress) === "internet",
   );
   const publicIPs = new Set(
     active
@@ -524,9 +524,6 @@ function App() {
   const countries = groupFlows(active, "country", data.locations).sort(
     (a, b) => b.flows.length - a.flows.length,
   );
-  const localCount = active.filter(
-    (f) => scope(f.remoteAddress) === "local",
-  ).length;
   useEffect(() => {
     if (!settings && !inspected) return;
     const previous = document.activeElement as HTMLElement;
@@ -782,9 +779,11 @@ function App() {
               </b>
             </span>
             <span>
-              <small>SOCKETS</small>
+              <small>INTERNET</small>
               <b>
-                {data.flows.filter((f) => f.active).length.toLocaleString()}
+                {active
+                  .filter((f) => scope(f.remoteAddress) === "internet")
+                  .length.toLocaleString()}
               </b>
             </span>
             <span>
@@ -1011,16 +1010,16 @@ function App() {
                     color="teal"
                   />
                   <Metric
-                    label="Active applications"
+                    label="Internet applications"
                     value={String(appCount)}
-                    sub={`${active.length} active connections`}
+                    sub={`${active.length} active Internet connections`}
                     icon={<Box size={19} />}
                     color="blue"
                   />
                   <Metric
                     label="Public destinations"
                     value={String(publicIPs.size)}
-                    sub={`${localCount} local connections`}
+                    sub="Unique public IPs"
                     icon={<Globe2 size={19} />}
                     color="orange"
                   />
@@ -1241,8 +1240,8 @@ function App() {
                       value={filter}
                       onChange={(e) => setFilter(e.target.value)}
                     >
-                      <option value="all">All networks</option>
-                      <option value="internet">Internet</option>
+                      <option value="all">All networks + listeners</option>
+                      <option value="internet">Internet (default)</option>
                       <option value="local">Local network</option>
                       <option value="listener">Listening sockets</option>
                     </select>
@@ -1496,7 +1495,7 @@ function App() {
                         </h3>
                         <p>
                           {latest
-                            ? "Try another search or choose All session sockets."
+                            ? "Try another search or choose All networks to include local traffic and listeners."
                             : "The Windows collector will populate this view automatically."}
                         </p>
                         {latest && (
@@ -1504,8 +1503,8 @@ function App() {
                             className="button"
                             onClick={() => {
                               setSearch("");
-                              setFilter("all");
-                              setLifecycle("all");
+                              setFilter("internet");
+                              setLifecycle("active");
                               setDirection("both");
                             }}
                           >
